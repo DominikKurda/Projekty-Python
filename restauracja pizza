@@ -1,0 +1,1276 @@
+from flask import Flask, request, redirect, url_for, session, make_response
+import os
+import json
+import re
+import csv
+import io
+import secrets
+from datetime import datetime, timedelta
+import smtplib
+from email.message import EmailMessage
+from urllib.parse import quote_plus
+
+# =========================
+# TIMEZONE
+# =========================
+try:
+    from zoneinfo import ZoneInfo
+    try:
+        TZ = ZoneInfo("Europe/Warsaw")
+    except Exception:
+        TZ = None
+except Exception:
+    TZ = None
+
+
+def now_pl() -> datetime:
+    return datetime.now(TZ) if TZ else datetime.now()
+
+
+def attach_tz(dt: datetime) -> datetime:
+    return dt.replace(tzinfo=TZ) if TZ else dt
+
+
+# =========================
+# CONFIG
+# =========================
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
+    print("⚠️ Brak ENV SECRET_KEY — wygenerowano tymczasowy (DEV). Ustaw SECRET_KEY!")
+
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+
+SMTP_HOST = os.environ.get("SMTP_HOST", "")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+SMTP_USER = os.environ.get("SMTP_USER", "")
+SMTP_PASS = os.environ.get("SMTP_PASS", "")
+SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USER)
+
+HISTORY_FILE = os.environ.get("HISTORY_FILE", "orders_history.json")
+CLIENTS_FILE = os.environ.get("CLIENTS_FILE", "clients.json")
+
+DELIVERY_FEE = 8
+FREE_DELIVERY_OVER = 80
+MIN_DELIVERY_TOTAL = 40
+
+# ✅ im więcej składników, tym drożej
+PRICE_PER_INGREDIENT = 2  # zł
+
+OPENING_HOURS = {
+    0: ("11:00", "22:00"),
+    1: ("11:00", "22:00"),
+    2: ("11:00", "22:00"),
+    3: ("11:00", "22:00"),
+    4: ("11:00", "23:00"),
+    5: ("12:00", "23:00"),
+    6: ("12:00", "22:00"),
+}
+
+ORDER_STATUSES = ["Przyjęte", "W przygotowaniu", "W drodze", "Dostarczone"]
+MAX_LEN = {"name": 60, "phone": 32, "email": 120, "address": 120}
+
+# =========================
+# PIZZERIA INFO (HOME)
+# =========================
+PIZZERIA_NAME = "Pizza Italia De Pizzo"
+PIZZERIA_CITY = "Opole"
+PIZZERIA_ADDRESS = "ul. Królewska 77"
+PIZZERIA_PHONE = "224 652 791"
+PIZZERIA_PHONE_TEL = "+48224652791"  # do linku tel:
+
+MAP_QUERY = f"{PIZZERIA_NAME}, {PIZZERIA_CITY}, {PIZZERIA_ADDRESS}"
+MAPS_URL = "https://www.google.com/maps/search/?api=1&query=" + quote_plus(MAP_QUERY)
+
+# =========================
+# APP
+# =========================
+app = Flask(__name__)
+app.secret_key = SECRET_KEY
+
+# =========================
+# DATA
+# =========================
+sizes = {
+    "mała": {"cm": 32, "base_price": 20},
+    "średnia": {"cm": 46, "base_price": 24},
+    "duża": {"cm": 60, "base_price": 29},
+}
+
+menu = [
+    {"id": 1, "name": "Margherita", "ingredients": ["sos pomidorowy", "ser"]},
+    {"id": 2, "name": "Pepperoni", "ingredients": ["sos pomidorowy", "ser", "pepperoni"]},
+    {"id": 3, "name": "Hawajska", "ingredients": ["sos pomidorowy", "ser", "szynka", "ananas"]},
+    {"id": 4, "name": "Capricciosa", "ingredients": ["sos pomidorowy", "ser", "szynka", "pieczarki"]},
+    {"id": 5, "name": "Vegetariana", "ingredients": ["sos pomidorowy", "ser", "papryka", "cebula", "oliwki"]},
+    {"id": 6, "name": "Diavola", "ingredients": ["sos pomidorowy", "ser", "salami", "chili"]},
+    {"id": 7, "name": "Funghi", "ingredients": ["sos pomidorowy", "ser", "pieczarki"]},
+    {"id": 8, "name": "Quattro Formaggi", "ingredients": ["mozzarella", "gorgonzola", "parmezan", "ricotta"]},
+    {"id": 9, "name": "Prosciutto", "ingredients": ["sos pomidorowy", "ser", "szynka parmeńska"]},
+    {"id": 10, "name": "Tonno", "ingredients": ["sos pomidorowy", "ser", "tuńczyk", "cebula"]},
+    {"id": 11, "name": "BBQ Chicken", "ingredients": ["sos BBQ", "kurczak", "ser", "cebula", "kukurydza"]},
+    {"id": 12, "name": "Mexicana", "ingredients": ["sos pomidorowy", "ser", "fasola", "jalapeño", "wołowina"]},
+    {"id": 13, "name": "Salami", "ingredients": ["sos pomidorowy", "ser", "salami"]},
+    {"id": 14, "name": "Spinaci", "ingredients": ["sos śmietanowy", "szpinak", "feta", "czosnek"]},
+    {"id": 15, "name": "Carbonara", "ingredients": ["sos śmietanowy", "bekon", "ser", "jajko"]},
+    {"id": 16, "name": "Frutti di Mare", "ingredients": ["sos pomidorowy", "ser", "krewetki", "kalmary", "małże"]},
+    {"id": 17, "name": "Cztery Pory Roku", "ingredients": ["sos pomidorowy", "ser", "szynka", "grzyby", "karczochy", "oliwki"]},
+    {"id": 18, "name": "Parmigiana", "ingredients": ["sos pomidorowy", "bakłażan", "parmezan", "bazylia"]},
+    {"id": 19, "name": "Boscaiola", "ingredients": ["sos pomidorowy", "ser", "grzyby", "boczek"]},
+    {"id": 20, "name": "Calzone", "ingredients": ["sos pomidorowy", "ser", "szynka", "pieczarki"]},
+]
+
+ADDONS = [
+    {"key": "extra_ser", "label": "Extra ser", "price": 4},
+    {"key": "sos_czosnkowy", "label": "Sos czosnkowy", "price": 2},
+    {"key": "sos_ostry", "label": "Ostry sos", "price": 2},
+    {"key": "podwojne_mieso", "label": "Podwójne mięso", "price": 7},
+]
+
+DRINKS = [
+    {"id": 101, "name": "Coca-Cola 0.5L", "price": 7},
+    {"id": 102, "name": "Coca-Cola Zero 0.5L", "price": 7},
+    {"id": 103, "name": "Fanta 0.5L", "price": 7},
+    {"id": 104, "name": "Sprite 0.5L", "price": 7},
+    {"id": 105, "name": "Woda niegazowana 0.5L", "price": 5},
+    {"id": 106, "name": "Woda gazowana 0.5L", "price": 5},
+    {"id": 107, "name": "Sok pomarańczowy 0.33L", "price": 6},
+]
+
+# =========================
+# STYLES
+# =========================
+STYLE = """
+<style>
+:root{
+  --bg1:#0b1220; --bg2:#111b31;
+  --stroke: rgba(255,255,255,0.12);
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.70);
+  --accent1:#ff2d55; --accent2:#ff7a18;
+  --shadow: 0 20px 50px rgba(0,0,0,0.35);
+  --radius: 22px;
+}
+*{ box-sizing:border-box; }
+body{
+  margin:0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+  color: var(--text);
+  background:
+    radial-gradient(1200px 800px at 20% -10%, rgba(255,45,85,0.25), transparent 55%),
+    radial-gradient(900px 700px at 90% 10%, rgba(255,122,24,0.22), transparent 55%),
+    linear-gradient(180deg, var(--bg1), var(--bg2));
+  min-height:100vh;
+  padding: 28px 18px 48px;
+}
+.container{ max-width:1100px; margin:0 auto; }
+h1{ margin: 0 0 12px; font-size: 46px; line-height: 1.06; letter-spacing:-0.7px; }
+h2{ margin: 0 0 12px; letter-spacing:-0.2px; }
+
+.notice{
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: rgba(255,255,255,0.85);
+}
+.notice strong{ color: var(--text); }
+
+.card{
+  margin: 18px 0 20px;
+  padding: 18px;
+  border-radius: var(--radius);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--stroke);
+  box-shadow: 0 16px 35px rgba(0,0,0,0.28);
+  backdrop-filter: blur(10px);
+}
+
+label{ color: var(--muted); font-weight: 800; display:block; margin-top:12px; }
+select, input[type="text"], input[type="email"], input[type="tel"], input[type="date"], input[type="time"]{
+  width: 100%;
+  max-width: 720px;
+  margin-top: 8px;
+  padding: 12px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.14);
+  background: rgba(0,0,0,0.22);
+  color: var(--text);
+  outline: none;
+}
+
+input[type="radio"], input[type="checkbox"]{ transform: translateY(1px); accent-color: #ff2d55; margin-right: 8px; }
+
+.button{
+  display: inline-flex; align-items: center; justify-content: center; gap: 10px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.16);
+  text-decoration: none;
+  color: white;
+  font-weight: 900;
+  letter-spacing: 0.2px;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--accent1), var(--accent2));
+  box-shadow: 0 16px 40px rgba(255,45,85,0.22);
+  transition: transform .12s ease, filter .12s ease;
+}
+.button:hover{ transform: translateY(-1px); filter: brightness(1.02); }
+
+.btnGhost{
+  background: rgba(255,255,255,0.06);
+  box-shadow: none;
+}
+
+.mini{ padding: 8px 10px; border-radius: 12px; font-weight: 800; font-size: 13px; }
+
+.row-actions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center; }
+.pill{ display:inline-block; padding:6px 10px; border-radius:999px; background: rgba(0,0,0,0.18); border:1px solid rgba(255,255,255,0.12); color: rgba(255,255,255,0.85); font-size: 12px; }
+hr{ border:0; height:1px; background: rgba(255,255,255,0.14); margin: 16px 0; }
+ul{ padding-left: 18px; }
+li{ margin-bottom: 10px; }
+.small{ font-size: 13px; color: rgba(255,255,255,0.70); margin-top: 6px; }
+
+.grid2{ display:grid; grid-template-columns: 1.2fr 0.8fr; gap: 14px; align-items: stretch; }
+@media(max-width: 900px){ .grid2{ grid-template-columns: 1fr; } }
+
+.topbar{
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 14px 16px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  backdrop-filter: blur(10px);
+}
+.brand{ display:flex; gap:10px; align-items:center; font-weight:900; letter-spacing:0.2px; }
+.logo{
+  width:40px; height:40px; border-radius:14px;
+  display:grid; place-items:center;
+  background: linear-gradient(135deg, var(--accent1), var(--accent2));
+  box-shadow: 0 14px 30px rgba(255,45,85,0.25);
+}
+.brand small{ display:block; color:var(--muted); font-weight:700; margin-top:2px; }
+
+.hero{
+  margin-top: 18px;
+  padding: 26px 24px;
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.05));
+  border: 1px solid var(--stroke);
+  box-shadow: var(--shadow);
+  position: relative;
+  overflow:hidden;
+}
+.hero:before{
+  content:"";
+  position:absolute; inset:-2px;
+  background: radial-gradient(700px 260px at 20% 20%, rgba(255,45,85,0.25), transparent 60%),
+              radial-gradient(700px 260px at 80% 30%, rgba(255,122,24,0.20), transparent 60%);
+  pointer-events:none;
+}
+.heroInner{ position:relative; z-index:1; }
+.lead{ margin:0 0 16px; color: var(--muted); font-size: 16px; line-height: 1.6; max-width: 62ch; }
+
+.statGrid{ display:grid; grid-template-columns: 1fr 1fr; gap:12px; margin-top: 10px; }
+.stat{
+  padding: 14px; border-radius: 16px;
+  background: rgba(0,0,0,0.16);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.stat b{ display:block; font-size: 18px; margin-bottom: 4px; }
+.stat span{ color: var(--muted); font-size: 13px; }
+
+.pizzaGrid{
+  margin-top: 12px;
+  display:grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+@media(max-width: 900px){ .pizzaGrid{ grid-template-columns: repeat(2, 1fr); } }
+@media(max-width: 520px){ .pizzaGrid{ grid-template-columns: 1fr; } }
+
+.pizza{
+  padding: 14px; border-radius: 18px;
+  background: rgba(0,0,0,0.16);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+.pizza .name{ font-weight: 900; margin-bottom: 6px; }
+.pizza .ing{ color: var(--muted); font-size: 13px; line-height: 1.45; }
+
+.footer{ margin-top: 18px; color: rgba(255,255,255,0.55); font-size: 13px; text-align:center; }
+</style>
+"""
+
+# =========================
+# HELPERS
+# =========================
+def clamp_str(v: str, limit: int) -> str:
+    v = (v or "").strip()
+    return v[:limit] if len(v) > limit else v
+
+
+def find_pizza(pid: int):
+    return next((p for p in menu if p["id"] == pid), None)
+
+
+def find_drink(did: int):
+    return next((d for d in DRINKS if d["id"] == did), None)
+
+
+def addons_map():
+    return {a["key"]: a for a in ADDONS}
+
+
+# ✅ SMART PHONE (luźne formaty + auto +48 przy 9 cyfrach)
+def normalize_phone(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    has_plus = s.startswith("+")
+    digits = re.sub(r"\D", "", s)
+    if not digits:
+        return ""
+    return ("+" if has_plus else "") + digits
+
+
+def validate_phone_pl(raw: str) -> tuple[bool, str, str]:
+    norm = normalize_phone(raw)
+    digits = norm[1:] if norm.startswith("+") else norm
+
+    if not digits:
+        return False, "", "Podaj numer telefonu."
+    if len(digits) == 9 and not norm.startswith("+"):
+        norm = "+48" + digits
+        digits = norm[1:]
+
+    if not digits.isdigit():
+        return False, norm, "Numer telefonu jest niepoprawny."
+    if not (9 <= len(digits) <= 12):
+        return False, norm, f"Numer ma {len(digits)} cyfr po oczyszczeniu — wymagane 9–12."
+
+    return True, norm, ""
+
+
+def calc_item_price(pizza: dict, size_key: str, addons_keys: list) -> int:
+    base = int(sizes[size_key]["base_price"])
+    ingredients_total = len(pizza["ingredients"]) * PRICE_PER_INGREDIENT
+    amap = addons_map()
+    addons_total = sum(int(amap[k]["price"]) for k in (addons_keys or []) if k in amap)
+    return int(base + ingredients_total + addons_total)
+
+
+def calc_cart_subtotal(items: list) -> int:
+    total = 0
+    for it in items:
+        kind = it.get("kind", "pizza")
+        qty = int(it.get("qty", 1))
+        if kind == "pizza":
+            p = find_pizza(int(it.get("id", 0)))
+            size = it.get("size")
+            if not p or size not in sizes:
+                continue
+            total += calc_item_price(p, size, it.get("addons", [])) * qty
+        else:
+            d = find_drink(int(it.get("id", 0)))
+            if not d:
+                continue
+            total += int(d["price"]) * qty
+    return total
+
+
+def delivery_cost(subtotal: int) -> int:
+    return 0 if subtotal >= FREE_DELIVERY_OVER else DELIVERY_FEE
+
+
+def csrf_get() -> str:
+    token = session.get("csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(24)
+        session["csrf_token"] = token
+    return token
+
+
+def csrf_check() -> bool:
+    token = session.get("csrf_token")
+    form_token = request.form.get("csrf_token", "")
+    return bool(token) and secrets.compare_digest(token, form_token)
+
+
+def parse_client_datetime(date_str: str, time_str: str):
+    if not date_str or not time_str:
+        return None
+    try:
+        dt = datetime.fromisoformat(f"{date_str}T{time_str}")
+        return attach_tz(dt)
+    except Exception:
+        return None
+
+
+def is_open_at(dt: datetime) -> bool:
+    if not dt:
+        return False
+    wd = dt.weekday()
+    if wd not in OPENING_HOURS:
+        return False
+    open_s, close_s = OPENING_HOURS[wd]
+    oh = attach_tz(datetime.fromisoformat(f"{dt.date().isoformat()}T{open_s}"))
+    ch = attach_tz(datetime.fromisoformat(f"{dt.date().isoformat()}T{close_s}"))
+    return oh <= dt <= ch
+
+
+def next_open_dt(after_dt: datetime) -> datetime | None:
+    dt = after_dt
+    for _ in range(24 * 12 * 3):  # ~3 dni co 5 min
+        if is_open_at(dt):
+            return dt
+        dt += timedelta(minutes=5)
+    return None
+
+
+def load_json_list(path: str) -> list:
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def save_json_list(path: str, data: list) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def load_history() -> list:
+    return load_json_list(HISTORY_FILE)
+
+
+def save_history(history: list) -> None:
+    save_json_list(HISTORY_FILE, history)
+
+
+def next_order_number(history: list) -> str:
+    year = now_pl().year
+    count = sum(1 for h in history if (h.get("order_id", "").startswith(f"ORDER-{year}-")))
+    return f"ORDER-{year}-{count+1:06d}"
+
+
+def load_clients() -> list:
+    return load_json_list(CLIENTS_FILE)
+
+
+def save_clients(clients: list) -> None:
+    save_json_list(CLIENTS_FILE, clients)
+
+
+def upsert_client_profile(profile: dict) -> None:
+    phone = (profile.get("phone") or "").strip()
+    if not phone:
+        return
+
+    clients = load_clients()
+    clean = {
+        "name": (profile.get("name") or "").strip(),
+        "phone": phone,
+        "email": (profile.get("email") or "").strip(),
+        "address": (profile.get("address") or "").strip(),
+        "method": (profile.get("method") or "").strip(),
+        "pay_method": (profile.get("pay_method") or "").strip(),
+    }
+
+    for i, c in enumerate(clients):
+        if (c.get("phone") or "").strip() == phone:
+            clients[i] = clean
+            save_clients(clients[-80:])
+            return
+
+    clients.append(clean)
+    save_clients(clients[-80:])
+
+
+def send_email(to_email: str, subject: str, body: str) -> tuple[bool, str]:
+    to_email = (to_email or "").strip()
+    if not to_email:
+        return False, "Brak e-mail"
+    if not SMTP_HOST or not SMTP_USER or not SMTP_PASS or not SMTP_FROM:
+        return False, "Brak konfiguracji SMTP w ENV"
+    try:
+        msg = EmailMessage()
+        msg["From"] = SMTP_FROM
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.set_content(body)
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as s:
+            s.starttls()
+            s.login(SMTP_USER, SMTP_PASS)
+            s.send_message(msg)
+        return True, "Wysłano"
+    except Exception as e:
+        return False, f"Błąd SMTP: {e}"
+
+
+def admin_auth_ok() -> bool:
+    if not ADMIN_TOKEN:
+        return False
+    q = request.args.get("token", "")
+    h = request.headers.get("X-Admin-Token", "")
+    return (q and secrets.compare_digest(q, ADMIN_TOKEN)) or (h and secrets.compare_digest(h, ADMIN_TOKEN))
+
+
+def _find_line(order, line_id):
+    for idx, it in enumerate(order):
+        if it.get("line_id") == line_id:
+            return idx, it
+    return None, None
+
+
+def _same_pizza(a: dict, pizza_id: int, size: str, addons_keys: list) -> bool:
+    return (
+        a.get("kind") == "pizza"
+        and int(a.get("id")) == int(pizza_id)
+        and a.get("size") == size
+        and set(a.get("addons", [])) == set(addons_keys or [])
+    )
+
+
+def _same_drink(a: dict, drink_id: int) -> bool:
+    return a.get("kind") == "drink" and int(a.get("id")) == int(drink_id)
+
+
+def add_or_merge_pizza(order: list, pizza_id: int, size: str, addons_keys: list):
+    for it in order:
+        if _same_pizza(it, pizza_id, size, addons_keys):
+            it["qty"] = int(it.get("qty", 1)) + 1
+            return
+    order.append({
+        "line_id": secrets.token_hex(8),
+        "kind": "pizza",
+        "id": pizza_id,
+        "size": size,
+        "qty": 1,
+        "addons": addons_keys
+    })
+
+
+def add_or_merge_drink(order: list, drink_id: int):
+    for it in order:
+        if _same_drink(it, drink_id):
+            it["qty"] = int(it.get("qty", 1)) + 1
+            return
+    order.append({
+        "line_id": secrets.token_hex(8),
+        "kind": "drink",
+        "id": drink_id,
+        "qty": 1
+    })
+
+
+def weekday_name_pl(wd: int) -> str:
+    names = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
+    return names[wd] if 0 <= wd <= 6 else "-"
+
+
+# =========================
+# ROUTES
+# =========================
+@app.route("/")
+def home():
+    html = STYLE
+    html += "<div class='container'>"
+
+    html += f"""
+    <div class='topbar'>
+        <div class='brand'>
+            <div class='logo'>🍕</div>
+            <div>
+                {PIZZERIA_NAME}
+                <small>{PIZZERIA_CITY} • {PIZZERIA_ADDRESS}</small>
+            </div>
+        </div>
+        <div class='row-actions' style='margin:0'>
+            <a class='button' href='/order'>✅ Zamów online</a>
+            <a class='button btnGhost' href='tel:{PIZZERIA_PHONE_TEL}'>📞 Zadzwoń</a>
+            <a class='button btnGhost' href='{MAPS_URL}' target='_blank' rel='noopener'>🗺️ Mapa</a>
+        </div>
+    </div>
+    """
+
+    # info dziś
+    now = now_pl()
+    wd = now.weekday()
+    open_s, close_s = OPENING_HOURS.get(wd, ("-", "-"))
+    today_line = f"{weekday_name_pl(wd)}: {open_s}–{close_s}"
+
+    html += f"""
+    <div class='hero'>
+        <div class='heroInner'>
+            <h1>Włoska pizza w Opolu.<br>Prosto, szybko, pysznie.</h1>
+            <p class='lead'>
+                Zamów pizzę i napoje w kilka kliknięć. Cena liczy się automatycznie – im więcej składników, tym drożej.
+            </p>
+            <div class='row-actions'>
+                <a class='button' href='/order'>🍕 Zamów teraz</a>
+                <a class='button btnGhost' href='tel:{PIZZERIA_PHONE_TEL}'>📞 {PIZZERIA_PHONE}</a>
+                <span class='pill'>Dziś: {today_line}</span>
+                <span class='pill'>Dostawa: {DELIVERY_FEE} zł (0 zł od {FREE_DELIVERY_OVER} zł)</span>
+                <span class='pill'>Minimum dostawy: {MIN_DELIVERY_TOTAL} zł</span>
+            </div>
+        </div>
+    </div>
+    """
+
+    html += "<div class='grid2'>"
+    html += f"""
+      <div class='card'>
+        <h2>📍 Kontakt</h2>
+        <div class='notice'>
+          <strong>Adres:</strong> {PIZZERIA_CITY}, {PIZZERIA_ADDRESS}<br>
+          <strong>Telefon:</strong> {PIZZERIA_PHONE}<br>
+          <strong>Nazwa:</strong> {PIZZERIA_NAME}
+        </div>
+        <div class='row-actions'>
+          <a class='button' href='/order'>✅ Zamów online</a>
+          <a class='button btnGhost' href='tel:{PIZZERIA_PHONE_TEL}'>📞 Zadzwoń</a>
+          <a class='button btnGhost' href='{MAPS_URL}' target='_blank' rel='noopener'>🗺️ Otwórz mapę</a>
+        </div>
+        <div class='small'>* Godziny otwarcia mogą się różnić w święta.</div>
+      </div>
+    """
+
+    # godziny tygodnia
+    html += "<div class='card'><h2>🕒 Godziny otwarcia</h2>"
+    html += "<ul>"
+    for wd_i in range(7):
+        os_, cs_ = OPENING_HOURS.get(wd_i, ("-", "-"))
+        html += f"<li><strong>{weekday_name_pl(wd_i)}:</strong> {os_}–{cs_}</li>"
+    html += "</ul>"
+    html += "</div>"
+    html += "</div>"
+
+    # polecane
+    featured = menu[:8]
+    html += "<div class='card'>"
+    html += "<h2>⭐ Polecane pizze</h2>"
+    html += "<div class='pizzaGrid'>"
+    for p in featured:
+        html += f"""
+        <div class='pizza'>
+          <div class='name'>{p['name']}</div>
+          <div class='ing'>{", ".join(p['ingredients'])}</div>
+        </div>
+        """
+    html += "</div>"
+    html += "<div class='row-actions' style='margin-top:14px;'>"
+    html += "<a class='button' href='/order'>🍕 Przejdź do zamówienia</a>"
+    html += "<a class='button btnGhost' href='/admin'>🛠️ Panel admina</a>"
+    html += "</div>"
+    html += "</div>"
+
+    html += f"<div class='footer'>© {PIZZERIA_NAME} • {PIZZERIA_CITY}, {PIZZERIA_ADDRESS} • tel. {PIZZERIA_PHONE}</div>"
+    html += "</div>"
+    return html
+
+
+@app.route("/order", methods=["GET", "POST"])
+def order_page():
+    session.setdefault("order", [])
+    session.setdefault("client", {})
+    session.setdefault("completed", False)
+    session.setdefault("notice", "")
+
+    notice = session.pop("notice", "")
+
+    if request.method == "POST":
+        if not csrf_check():
+            session["notice"] = "❌ CSRF."
+            return redirect(url_for("order_page"))
+
+        if "pizza_id" in request.form:
+            try:
+                pid = int(request.form.get("pizza_id"))
+                size = request.form.get("size")
+                addons_keys = request.form.getlist("addon")
+
+                if size not in sizes or not find_pizza(pid):
+                    session["notice"] = "❌ Zły wybór pizzy/rozmiaru."
+                    return redirect(url_for("order_page"))
+
+                valid_addons = set(a["key"] for a in ADDONS)
+                addons_keys = [k for k in addons_keys if k in valid_addons]
+
+                add_or_merge_pizza(session["order"], pid, size, addons_keys)
+                session.modified = True
+            except Exception:
+                session["notice"] = "❌ Nie udało się dodać pizzy."
+                return redirect(url_for("order_page"))
+
+        elif "drink_id" in request.form:
+            try:
+                did = int(request.form.get("drink_id"))
+                if not find_drink(did):
+                    session["notice"] = "❌ Nie znaleziono napoju."
+                    return redirect(url_for("order_page"))
+                add_or_merge_drink(session["order"], did)
+                session.modified = True
+            except Exception:
+                session["notice"] = "❌ Nie udało się dodać napoju."
+                return redirect(url_for("order_page"))
+
+    csrf = csrf_get()
+    html = STYLE
+    html += "<div class='container'>"
+    html += f"<div class='topbar'><div class='brand'><div class='logo'>🍕</div><div>{PIZZERIA_NAME}<small>Zamów online</small></div></div>"
+    html += "<div class='row-actions' style='margin:0'>"
+    html += "<a class='button btnGhost' href='/'>🏠 Strona główna</a>"
+    html += f"<a class='button btnGhost' href='tel:{PIZZERIA_PHONE_TEL}'>📞 {PIZZERIA_PHONE}</a>"
+    html += "</div></div>"
+
+    html += "<h1 style='margin-top:16px;'>🍕 Zamów pizzę</h1>"
+
+    if notice:
+        html += f"<div class='notice'><strong>Info:</strong> {notice}</div>"
+
+    now = now_pl()
+    open_s, close_s = OPENING_HOURS.get(now.weekday(), ("-", "-"))
+    html += f"<div class='notice'><strong>Dziś otwarte:</strong> {open_s}–{close_s} • <span class='pill'>Składnik: {PRICE_PER_INGREDIENT} zł</span></div>"
+
+    if not session.get("completed"):
+        html += "<div class='grid2'>"
+
+        # pizza
+        html += "<div class='card'>"
+        html += "<h2>🍕 Dodaj pizzę</h2>"
+        html += "<form method='POST'>"
+        html += f"<input type='hidden' name='csrf_token' value='{csrf}'>"
+
+        html += "<label>Pizza</label>"
+        html += "<select name='pizza_id'>"
+        for p in menu:
+            html += f"<option value='{p['id']}'>{p['name']} ({', '.join(p['ingredients'])})</option>"
+        html += "</select>"
+
+        html += "<label>Rozmiar</label>"
+        for sk, info in sizes.items():
+            html += f"<div><input type='radio' name='size' value='{sk}' required> {sk.capitalize()} ({info['cm']} cm)</div>"
+
+        html += "<label>Dodatki</label>"
+        for a in ADDONS:
+            html += f"<div><input type='checkbox' name='addon' value='{a['key']}'> {a['label']} (+{a['price']} zł)</div>"
+
+        html += "<br><button class='button' type='submit'>Dodaj pizzę</button>"
+        html += "</form></div>"
+
+        # drink
+        html += "<div class='card'>"
+        html += "<h2>🥤 Dodaj napój</h2>"
+        html += "<form method='POST'>"
+        html += f"<input type='hidden' name='csrf_token' value='{csrf}'>"
+        html += "<label>Napoje</label>"
+        html += "<select name='drink_id'>"
+        for d in DRINKS:
+            html += f"<option value='{d['id']}'>{d['name']} — {d['price']} zł</option>"
+        html += "</select>"
+        html += "<br><br><button class='button' type='submit'>Dodaj napój</button>"
+        html += "</form></div>"
+
+        html += "</div>"
+
+    # cart
+    html += "<div class='card'><h2>🧾 Koszyk</h2>"
+    order = session.get("order", [])
+    client = session.get("client", {}) or {}
+
+    if not order:
+        html += "<p>Brak pozycji.</p>"
+    else:
+        subtotal = calc_cart_subtotal(order)
+        amap = addons_map()
+
+        html += "<ul>"
+        for it in order:
+            kind = it.get("kind")
+            qty = int(it.get("qty", 1))
+            line_id = it.get("line_id", "")
+
+            if kind == "pizza":
+                p = find_pizza(int(it.get("id")))
+                size = it.get("size")
+                addons_keys = it.get("addons", [])
+                if not p or size not in sizes:
+                    continue
+                unit = calc_item_price(p, size, addons_keys)
+                addons_txt = ", ".join(amap[k]["label"] for k in addons_keys if k in amap) or "brak"
+                html += f"<li><strong>🍕 {p['name']}</strong> • {size} • dodatki: {addons_txt}<br>{unit} zł/szt × {qty} = <strong>{unit*qty} zł</strong>"
+            else:
+                d = find_drink(int(it.get("id")))
+                if not d:
+                    continue
+                unit = int(d["price"])
+                html += f"<li><strong>🥤 {d['name']}</strong><br>{unit} zł/szt × {qty} = <strong>{unit*qty} zł</strong>"
+
+            html += "<div class='row-actions'>"
+            html += f"<form method='POST' action='/item/set_qty' style='display:inline;'>"
+            html += f"<input type='hidden' name='csrf_token' value='{csrf}'>"
+            html += f"<input type='hidden' name='line_id' value='{line_id}'>"
+            html += "<select name='qty' onchange='this.form.submit()'>"
+            for qopt in range(1, 11):
+                sel = "selected" if qopt == qty else ""
+                html += f"<option value='{qopt}' {sel}>{qopt} szt.</option>"
+            html += "</select></form>"
+
+            html += f"<form method='POST' action='/item/remove' style='display:inline;'>"
+            html += f"<input type='hidden' name='csrf_token' value='{csrf}'>"
+            html += f"<input type='hidden' name='line_id' value='{line_id}'>"
+            html += "<button class='button mini' type='submit'>Usuń</button>"
+            html += "</form>"
+
+            if kind == "pizza":
+                html += f"<form method='POST' action='/item/resize' style='display:inline;'>"
+                html += f"<input type='hidden' name='csrf_token' value='{csrf}'>"
+                html += f"<input type='hidden' name='line_id' value='{line_id}'>"
+                html += "<select name='new_size' onchange='this.form.submit()'>"
+                for sk in sizes.keys():
+                    sel = "selected" if sk == it.get("size") else ""
+                    html += f"<option value='{sk}' {sel}>{sk}</option>"
+                html += "</select></form>"
+
+            html += "</div></li>"
+        html += "</ul>"
+
+        delivery = delivery_cost(subtotal) if client.get("method") == "Dostawa" else 0
+        total = subtotal + delivery
+        html += "<hr>"
+        html += f"<div><strong>Suma:</strong> {subtotal} zł"
+        if client.get("method") == "Dostawa":
+            html += f" + dostawa {delivery} zł"
+        html += f" = <strong>{total} zł</strong></div>"
+
+    html += "<div class='row-actions'>"
+    html += "<a class='button mini' href='/clear'>🧹 Wyczyść koszyk</a>"
+    html += "<a class='button mini' href='/restart'>🔄 Nowe zamówienie</a>"
+    html += "</div>"
+    html += "</div>"
+
+    # ultra proste zamówienie
+    if not session.get("completed"):
+        clients = load_clients()
+
+        html += "<div class='card'>"
+        html += "<h2>⚡ Szybkie zamówienie</h2>"
+        html += "<div class='notice'><strong>Minimum:</strong> imię+nazwisko i telefon. Adres tylko dla dostawy.</div>"
+
+        html += """
+        <script>
+        function onClientChange(){
+          const sel = document.getElementById('client_pick');
+          const isNew = (sel.value === '__new__');
+          document.getElementById('new_fields').style.display = isNew ? 'block' : 'none';
+          // jeśli wybierasz klienta z listy i jest dostawa, a nie ma adresu – user zobaczy błąd po submit
+        }
+        function onMethodChange(){
+          const m = document.getElementById('method');
+          const addr = document.getElementById('address_box');
+          const addrInput = document.getElementById('address');
+          const need = (m.value === 'Dostawa');
+          addr.style.display = need ? 'block' : 'none';
+          addrInput.required = need;
+        }
+        function onWhenChange(){
+          const w = document.getElementById('when');
+          document.getElementById('dtBox').style.display = (w.value === 'custom') ? 'block' : 'none';
+        }
+        </script>
+        """
+
+        html += "<form method='POST' action='/quick_order_simple'>"
+        html += f"<input type='hidden' name='csrf_token' value='{csrf}'>"
+
+        html += "<label>Klient</label>"
+        html += "<select id='client_pick' name='client_pick' onchange='onClientChange()'>"
+        html += "<option value='__new__'>➕ Nowy klient (wpisz dane)</option>"
+        for c in reversed(clients[-40:]):
+            nm = (c.get("name") or "").strip()
+            ph = (c.get("phone") or "").strip()
+            html += f"<option value='{ph}'>{nm} • {ph}</option>"
+        html += "</select>"
+
+        html += "<div id='new_fields' style='margin-top:10px;'>"
+        html += "<label>Imię i nazwisko *</label>"
+        html += "<input name='name' maxlength='60' placeholder='np. Jan Kowalski' required>"
+        html += "<label>Telefon * (np. 224 652 791)</label>"
+        html += "<input type='tel' name='phone' maxlength='32' inputmode='tel' placeholder='+48 123 456 789 lub 224 652 791' required>"
+        html += "<div class='small'>Wpisz 9 cyfr → automatycznie dodamy +48.</div>"
+        html += "<label>E-mail (opcjonalnie)</label>"
+        html += "<input name='email' maxlength='120' placeholder='opcjonalnie'>"
+        html += "</div>"
+
+        html += "<label>Metoda</label>"
+        html += "<select id='method' name='method' onchange='onMethodChange()'>"
+        html += "<option value='Dostawa' selected>Dostawa</option>"
+        html += "<option value='Odbiór osobisty'>Odbiór osobisty</option>"
+        html += "</select>"
+
+        html += "<div id='address_box' style='margin-top:10px;'>"
+        html += "<label>Adres (tylko dla dostawy) *</label>"
+        html += "<input id='address' name='address' maxlength='120' placeholder='ul. ...' required>"
+        html += "</div>"
+
+        html += "<label>Płatność</label>"
+        html += "<select name='pay_method'>"
+        html += "<option value='BLIK' selected>BLIK</option>"
+        html += "<option value='Karta'>Karta</option>"
+        html += "<option value='Gotówka'>Gotówka</option>"
+        html += "</select>"
+
+        html += "<label>Termin</label>"
+        html += "<select id='when' name='when' onchange='onWhenChange()'>"
+        html += "<option value='asap' selected>Jak najszybciej</option>"
+        html += "<option value='custom'>Wybierz termin</option>"
+        html += "</select>"
+
+        html += "<div id='dtBox' style='display:none;'>"
+        html += "<label>Data</label><input type='date' name='date'>"
+        html += "<label>Godzina</label><input type='time' name='time'>"
+        html += "</div>"
+
+        html += "<br><br><button class='button' type='submit'>✅ Zamów teraz</button>"
+        html += "</form>"
+        html += "</div>"
+
+    if session.get("completed"):
+        html += "<div class='notice'><strong>✅ Dziękujemy za złożenie zamówienia!</strong></div>"
+        html += "<a class='button' href='/restart'>🔄 Nowe zamówienie</a>"
+
+    html += "</div>"
+    return html
+
+
+@app.route("/quick_order_simple", methods=["POST"])
+def quick_order_simple():
+    if not csrf_check():
+        session["notice"] = "❌ CSRF."
+        return redirect(url_for("order_page"))
+
+    order = session.get("order", [])
+    if not order:
+        session["notice"] = "❌ Dodaj coś do koszyka."
+        return redirect(url_for("order_page"))
+
+    client_pick = (request.form.get("client_pick") or "__new__").strip()
+
+    method = (request.form.get("method") or "Dostawa").strip()
+    pay_method = (request.form.get("pay_method") or "BLIK").strip()
+    when = (request.form.get("when") or "asap").strip()
+
+    chosen = None
+
+    if client_pick != "__new__":
+        phone = client_pick
+        chosen = next((c for c in load_clients() if (c.get("phone") or "").strip() == phone), None)
+        if not chosen:
+            session["notice"] = "❌ Nie znaleziono klienta."
+            return redirect(url_for("order_page"))
+    else:
+        name = clamp_str(request.form.get("name"), MAX_LEN["name"])
+        raw_phone = clamp_str(request.form.get("phone"), MAX_LEN["phone"])
+        email = clamp_str(request.form.get("email"), MAX_LEN["email"])
+        address = clamp_str(request.form.get("address"), MAX_LEN["address"])
+
+        if not name:
+            session["notice"] = "❌ Podaj imię i nazwisko."
+            return redirect(url_for("order_page"))
+
+        ok, phone_norm, err = validate_phone_pl(raw_phone)
+        if not ok:
+            session["notice"] = f"❌ {err} Przykład: +48 123 456 789 lub 224652791."
+            return redirect(url_for("order_page"))
+
+        if method == "Dostawa" and not address.strip():
+            session["notice"] = "❌ Podaj adres (wymagany przy dostawie)."
+            return redirect(url_for("order_page"))
+
+        profile = {
+            "name": name,
+            "phone": phone_norm,
+            "email": email,
+            "address": address,
+            "method": method,
+            "pay_method": pay_method
+        }
+        upsert_client_profile(profile)
+        chosen = profile
+
+    address_final = (request.form.get("address") or "").strip()
+    if method == "Dostawa":
+        if client_pick != "__new__":
+            address_final = (chosen.get("address") or "").strip()
+        if not address_final:
+            session["notice"] = "❌ Ten klient nie ma adresu. Wybierz „Nowy klient” i wpisz adres."
+            return redirect(url_for("order_page"))
+
+    if when == "custom":
+        date = (request.form.get("date") or "").strip()
+        time = (request.form.get("time") or "").strip()
+        dt = parse_client_datetime(date, time)
+        if not dt:
+            session["notice"] = "❌ Podaj poprawną datę i godzinę."
+            return redirect(url_for("order_page"))
+    else:
+        dt = next_open_dt(now_pl() + timedelta(minutes=30))
+        if not dt:
+            session["notice"] = "❌ Nie udało się ustalić najbliższego terminu."
+            return redirect(url_for("order_page"))
+        date = dt.date().isoformat()
+        time = dt.strftime("%H:%M")
+
+    if dt < now_pl():
+        session["notice"] = "❌ Termin w przeszłości."
+        return redirect(url_for("order_page"))
+    if not is_open_at(dt):
+        session["notice"] = "❌ Lokal zamknięty w wybranym terminie."
+        return redirect(url_for("order_page"))
+
+    subtotal = calc_cart_subtotal(order)
+    if method == "Dostawa" and subtotal < MIN_DELIVERY_TOTAL:
+        session["notice"] = f"❌ Minimum na dostawę to {MIN_DELIVERY_TOTAL} zł (Twoje: {subtotal} zł)."
+        return redirect(url_for("order_page"))
+
+    session["client"] = {
+        "name": chosen.get("name", ""),
+        "phone": chosen.get("phone", ""),
+        "email": chosen.get("email", ""),
+        "address": address_final if method == "Dostawa" else "",
+        "method": method,
+        "pay_method": pay_method,
+        "date": date,
+        "time": time
+    }
+    session.modified = True
+    return redirect(url_for("complete"))
+
+
+@app.route("/item/set_qty", methods=["POST"])
+def item_set_qty():
+    if not csrf_check():
+        session["notice"] = "❌ CSRF."
+        return redirect(url_for("order_page"))
+
+    line_id = request.form.get("line_id", "")
+    try:
+        qty = int(request.form.get("qty", "1"))
+    except Exception:
+        qty = 1
+    qty = max(1, min(20, qty))
+
+    order = session.get("order", [])
+    idx, it = _find_line(order, line_id)
+    if it:
+        it["qty"] = qty
+        session["order"][idx] = it
+        session.modified = True
+
+    return redirect(url_for("order_page"))
+
+
+@app.route("/item/remove", methods=["POST"])
+def item_remove():
+    if not csrf_check():
+        session["notice"] = "❌ CSRF."
+        return redirect(url_for("order_page"))
+
+    line_id = request.form.get("line_id", "")
+    order = session.get("order", [])
+    session["order"] = [x for x in order if x.get("line_id") != line_id]
+    session.modified = True
+    return redirect(url_for("order_page"))
+
+
+@app.route("/item/resize", methods=["POST"])
+def item_resize():
+    if not csrf_check():
+        session["notice"] = "❌ CSRF."
+        return redirect(url_for("order_page"))
+
+    line_id = request.form.get("line_id", "")
+    new_size = request.form.get("new_size", "")
+    if new_size not in sizes:
+        return redirect(url_for("order_page"))
+
+    order = session.get("order", [])
+    idx, it = _find_line(order, line_id)
+    if it and it.get("kind") == "pizza":
+        it["size"] = new_size
+        session["order"][idx] = it
+        session.modified = True
+
+    return redirect(url_for("order_page"))
+
+
+@app.route("/clear")
+def clear():
+    session.pop("order", None)
+    session.pop("client", None)
+    session.pop("completed", None)
+    session["notice"] = "🧹 Koszyk wyczyszczony."
+    return redirect(url_for("order_page"))
+
+
+@app.route("/restart")
+def restart():
+    session.pop("order", None)
+    session.pop("client", None)
+    session.pop("completed", None)
+    session["notice"] = "🔄 Nowe zamówienie."
+    return redirect(url_for("order_page"))
+
+
+@app.route("/complete")
+def complete():
+    order = session.get("order", [])
+    client = session.get("client", {}) or {}
+
+    if not order or not client:
+        session["notice"] = "❌ Brak koszyka lub danych klienta."
+        return redirect(url_for("order_page"))
+
+    subtotal = calc_cart_subtotal(order)
+    if client.get("method") == "Dostawa" and subtotal < MIN_DELIVERY_TOTAL:
+        session["notice"] = f"❌ Minimum na dostawę to {MIN_DELIVERY_TOTAL} zł."
+        return redirect(url_for("order_page"))
+
+    dt = parse_client_datetime(client.get("date", ""), client.get("time", ""))
+    if not dt or dt < now_pl() or not is_open_at(dt):
+        session["notice"] = "❌ Termin niepoprawny."
+        return redirect(url_for("order_page"))
+
+    history = load_history()
+    oid = next_order_number(history)
+    entry = {
+        "order_id": oid,
+        "status": ORDER_STATUSES[0],
+        "ts": now_pl().isoformat(timespec="seconds"),
+        "order": order,
+        "client": client,
+    }
+    history.append(entry)
+    save_history(history)
+
+    email = (client.get("email") or "").strip()
+    if email:
+        delivery = delivery_cost(subtotal) if client.get("method") == "Dostawa" else 0
+        total = subtotal + delivery
+        body = (
+            f"Zamówienie {oid}\n"
+            f"Status: {ORDER_STATUSES[0]}\n"
+            f"Suma: {total} zł\n"
+            f"Termin: {client.get('date')} {client.get('time')}\n"
+        )
+        ok, msg = send_email(email, f"Potwierdzenie zamówienia {oid}", body)
+        session["notice"] = "✅ Dziękujemy za złożenie zamówienia! " + (f"📧 {msg}" if ok else f"⚠️ {msg}")
+    else:
+        session["notice"] = "✅ Dziękujemy za złożenie zamówienia!"
+
+    session["completed"] = True
+    return redirect(url_for("order_page"))
+
+
+@app.route("/admin")
+def admin():
+    if not admin_auth_ok():
+        return make_response("Brak dostępu. Dodaj ?token=TWÓJ_ADMIN_TOKEN lub nagłówek X-Admin-Token.", 401)
+
+    history = load_history()
+    token = request.args.get("token", "")
+
+    html = STYLE
+    html += "<div class='container'>"
+    html += "<h1>🛠️ Panel admina</h1>"
+    html += "<div class='notice'><strong>Statusy:</strong> "
+    for st in ORDER_STATUSES:
+        html += f"<a class='button mini' href='/admin?token={token}&status={st}'>{st}</a> "
+    html += f"<a class='button mini' href='/admin/export.csv?token={token}'>⬇️ Eksport CSV</a>"
+    html += "<a class='button mini' href='/'>🏠 Home</a>"
+    html += "</div>"
+
+    q_status = request.args.get("status", "").strip()
+    filtered = [h for h in history if (not q_status or h.get("status") == q_status)]
+
+    html += "<div class='card'><h2>📦 Zamówienia</h2>"
+    html += f"<p>Łącznie: {len(filtered)} (z {len(history)})</p>"
+
+    for h in reversed(filtered[-200:]):
+        oid = h.get("order_id", "")
+        status = h.get("status", "")
+        c = h.get("client", {}) or {}
+        ts = h.get("ts", "")
+        html += f"<div class='notice'><strong>{oid}</strong> <span class='pill'>{status}</span><br>"
+        html += f"🕓 {ts}<br>"
+        html += f"{c.get('name','')} • {c.get('phone','')} • {c.get('method','')} • 💳 {c.get('pay_method','')} • {c.get('date','')} {c.get('time','')}<br>"
+        html += "Zmień status: "
+        for st in ORDER_STATUSES:
+            html += f"<a class='button mini' href='/admin/set_status?token={token}&order_id={oid}&status={st}'>{st}</a> "
+        html += "</div>"
+
+    html += "</div></div>"
+    return html
+
+
+@app.route("/admin/set_status")
+def admin_set_status():
+    if not admin_auth_ok():
+        return make_response("Brak dostępu.", 401)
+
+    token = request.args.get("token", "")
+    order_id = (request.args.get("order_id", "") or "").strip()
+    status = (request.args.get("status", "") or "").strip()
+    if status not in ORDER_STATUSES:
+        return redirect(url_for("admin", token=token))
+
+    history = load_history()
+    for h in history:
+        if h.get("order_id") == order_id:
+            h["status"] = status
+            break
+    save_history(history)
+    return redirect(url_for("admin", token=token))
+
+
+@app.route("/admin/export.csv")
+def admin_export_csv():
+    if not admin_auth_ok():
+        return make_response("Brak dostępu.", 401)
+
+    history = load_history()
+    output = io.StringIO()
+    w = csv.writer(output)
+    w.writerow(["order_id", "status", "ts", "name", "phone", "email", "method", "pay_method", "date", "time"])
+
+    for h in history:
+        c = h.get("client", {}) or {}
+        w.writerow([
+            h.get("order_id", ""),
+            h.get("status", ""),
+            h.get("ts", ""),
+            c.get("name", ""),
+            c.get("phone", ""),
+            c.get("email", ""),
+            c.get("method", ""),
+            c.get("pay_method", ""),
+            c.get("date", ""),
+            c.get("time", ""),
+        ])
+
+    resp = make_response(output.getvalue())
+    resp.headers["Content-Type"] = "text/csv; charset=utf-8"
+    resp.headers["Content-Disposition"] = "attachment; filename=orders_export.csv"
+    return resp
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
