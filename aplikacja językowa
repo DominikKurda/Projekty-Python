@@ -1,0 +1,2003 @@
+from __future__ import annotations
+
+import json
+import os
+import random
+from dataclasses import dataclass, asdict
+from datetime import datetime, timedelta
+from typing import Dict, List
+
+from flask import Flask, request, redirect, url_for, flash, render_template_string
+
+APP_TITLE = "English Trainer (Flask)"
+DATA_FILE = "words.json"
+LESSONS_FILE = "lessons_progress.json"
+
+app = Flask(__name__)
+app.secret_key = "change-me-please"  # zmień na coś własnego
+
+
+# ============================
+# Model słówka + zapis do JSON
+# ============================
+
+@dataclass
+class Word:
+    id: str
+    en: str
+    pl: str
+    example: str = ""
+    notes: str = ""
+    tags: List[str] = None
+
+    # SRS / powtórki
+    next_review: str = ""  # ISO datetime
+    interval_days: int = 0
+    ease: float = 2.5
+    reps: int = 0
+
+    # statystyki
+    correct: int = 0
+    wrong: int = 0
+    created_at: str = ""
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["tags"] = self.tags or []
+        return d
+
+    @staticmethod
+    def from_dict(d: dict) -> "Word":
+        return Word(
+            id=d.get("id", ""),
+            en=(d.get("en", "") or "").strip(),
+            pl=(d.get("pl", "") or "").strip(),
+            example=d.get("example", "") or "",
+            notes=d.get("notes", "") or "",
+            tags=d.get("tags", []) or [],
+            next_review=d.get("next_review", "") or "",
+            interval_days=int(d.get("interval_days", 0) or 0),
+            ease=float(d.get("ease", 2.5) or 2.5),
+            reps=int(d.get("reps", 0) or 0),
+            correct=int(d.get("correct", 0) or 0),
+            wrong=int(d.get("wrong", 0) or 0),
+            created_at=d.get("created_at", "") or "",
+        )
+
+
+def now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def parse_iso(s: str) -> datetime:
+    if not s:
+        return datetime.now()
+    try:
+        return datetime.fromisoformat(s)
+    except Exception:
+        return datetime.now()
+
+
+def load_words() -> Dict[str, Word]:
+    if not os.path.exists(DATA_FILE):
+        seed = seed_words()
+        save_words(seed)
+        return seed
+
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        raw = json.load(f)
+
+    words: Dict[str, Word] = {}
+    for item in raw.get("words", []):
+        w = Word.from_dict(item)
+        if w.id:
+            words[w.id] = w
+    return words
+
+
+def save_words(words: Dict[str, Word]) -> None:
+    payload = {"words": [w.to_dict() for w in words.values()]}
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def seed_words() -> Dict[str, Word]:
+    # Przykładowa baza startowa – możesz zresetować w Settings
+    base = [
+        # lesson1
+        ("Hi!", "Cześć!", "Hi! My name is Tom.", ["lesson1", "everyday"]),
+        ("Hello!", "Witaj! / Dzień dobry!", "Hello! Nice to meet you.", ["lesson1", "everyday"]),
+        ("My name is ...", "Mam na imię ...", "My name is Anna.", ["lesson1"]),
+        ("What's your name?", "Jak masz na imię?", "What's your name?", ["lesson1"]),
+        ("Nice to meet you.", "Miło mi cię poznać.", "Nice to meet you.", ["lesson1"]),
+        ("How are you?", "Jak się masz?", "How are you today?", ["lesson1"]),
+        ("I'm fine, thanks.", "W porządku, dzięki.", "I'm fine, thanks.", ["lesson1"]),
+        ("Where are you from?", "Skąd jesteś?", "Where are you from?", ["lesson1"]),
+        ("I'm from Poland.", "Jestem z Polski.", "I'm from Poland.", ["lesson1"]),
+        ("Goodbye!", "Do widzenia!", "Goodbye! See you.", ["lesson1"]),
+
+        # lesson2
+        ("How old are you?", "Ile masz lat?", "How old are you?", ["lesson2"]),
+        ("I'm ... years old.", "Mam ... lat.", "I'm 25 years old.", ["lesson2"]),
+        ("I was born in ...", "Urodziłem/am się w ...", "I was born in 2000.", ["lesson2"]),
+        ("When were you born?", "Kiedy się urodziłeś/urodziłaś?", "When were you born?", ["lesson2"]),
+        ("I'm a student.", "Jestem studentem/studentką.", "I'm a student.", ["lesson2"]),
+        ("I work as a ...", "Pracuję jako ...", "I work as a programmer.", ["lesson2"]),
+        ("What do you do?", "Czym się zajmujesz?", "What do you do?", ["lesson2"]),
+        ("I live in ...", "Mieszkam w ...", "I live in Kraków.", ["lesson2"]),
+        ("That's interesting.", "To ciekawe.", "That's interesting.", ["lesson2"]),
+
+        # Airport module (tags)
+        ("I’d like to check in, please.", "Chciałbym się odprawić.", "", ["airport", "lesson31"]),
+        ("Here is my passport and ticket.", "Oto paszport i bilet.", "", ["airport", "lesson31"]),
+        ("I have a reservation.", "Mam rezerwację.", "", ["airport", "lesson31"]),
+        ("I have luggage to check in.", "Mam bagaż do nadania.", "", ["airport", "lesson31"]),
+        ("I have only hand luggage.", "Mam tylko bagaż podręczny.", "", ["airport", "lesson31"]),
+        ("Can I have a window seat?", "Czy mogę dostać miejsce przy oknie?", "", ["airport", "lesson31"]),
+        ("Can I have an aisle seat?", "Czy mogę dostać miejsce przy przejściu?", "", ["airport", "lesson31"]),
+        ("Is the flight on time?", "Czy lot jest punktualny?", "", ["airport", "lesson31"]),
+    ]
+
+    words: Dict[str, Word] = {}
+    for i, (en, pl, ex, tags) in enumerate(base, start=1):
+        wid = f"w{i:04d}"
+        w = Word(
+            id=wid,
+            en=en,
+            pl=pl,
+            example=ex,
+            notes="",
+            tags=tags,
+            created_at=now_iso(),
+            next_review=now_iso(),
+            interval_days=0,
+            ease=2.5,
+            reps=0,
+        )
+        words[w.id] = w
+    return words
+
+
+# ============================
+# SRS (powtórki) – prosty SM-2
+# ============================
+
+def schedule_next(word: Word, grade: int) -> None:
+    word.ease = max(1.3, word.ease + (0.1 - (5 - grade) * (0.08 + (5 - grade) * 0.02)))
+
+    if grade < 3:
+        word.reps = 0
+        word.interval_days = 1
+    else:
+        word.reps += 1
+        if word.reps == 1:
+            word.interval_days = 1
+        elif word.reps == 2:
+            word.interval_days = 3
+        else:
+            word.interval_days = int(round(word.interval_days * word.ease))
+
+    next_dt = datetime.now() + timedelta(days=word.interval_days)
+    word.next_review = next_dt.isoformat(timespec="seconds")
+
+
+def due_words(words: Dict[str, Word], tag: str = "") -> List[Word]:
+    now = datetime.now()
+    items = list(words.values())
+    if tag:
+        items = [w for w in items if tag in (w.tags or [])]
+    return [w for w in items if parse_iso(w.next_review) <= now]
+
+
+# ============================
+# Materiały (teoria/gramatyka)
+# ============================
+
+MATERIALS = [
+    {
+        "id": "past_to_be",
+        "title": "Czas przeszły – TO BE (was / were)",
+        "sections": [
+            {
+                "title": "Forma twierdząca",
+                "items": [
+                    {"en": "I was", "pl": "ja byłem / ja byłam"},
+                    {"en": "you were", "pl": "ty byłeś / ty byłaś"},
+                    {"en": "he was", "pl": "on był"},
+                    {"en": "she was", "pl": "ona była"},
+                    {"en": "it was", "pl": "to było"},
+                    {"en": "we were", "pl": "my byliśmy / my byłyśmy"},
+                    {"en": "you were", "pl": "wy byliście / wy byłyście"},
+                    {"en": "they were", "pl": "oni byli / one były"},
+                ],
+            },
+            {
+                "title": "Forma przecząca",
+                "items": [
+                    {"en": "I wasn’t", "pl": "ja nie byłem / ja nie byłam"},
+                    {"en": "you weren’t", "pl": "ty nie byłeś / ty nie byłaś"},
+                    {"en": "he wasn’t", "pl": "on nie był"},
+                    {"en": "she wasn’t", "pl": "ona nie była"},
+                    {"en": "it wasn’t", "pl": "to nie było"},
+                    {"en": "we weren’t", "pl": "my nie byliśmy / my nie byłyśmy"},
+                    {"en": "you weren’t", "pl": "wy nie byliście / wy nie byłyście"},
+                    {"en": "they weren’t", "pl": "oni nie byli / one nie były"},
+                ],
+            },
+            {
+                "title": "W skrócie",
+                "items": [
+                    {"en": "was → I / he / she / it", "pl": "was używamy z: I / he / she / it"},
+                    {"en": "were → you / we / they", "pl": "were używamy z: you / we / they"},
+                    {"en": "was not = wasn’t", "pl": "skrócona forma"},
+                    {"en": "were not = weren’t", "pl": "skrócona forma"},
+                ],
+            },
+        ],
+        "examples": [
+            {"en": "I was at home yesterday.", "pl": "Byłem / byłam wczoraj w domu."},
+            {"en": "She wasn’t happy.", "pl": "Ona nie była szczęśliwa."},
+            {"en": "We were tired after work.", "pl": "Byliśmy zmęczeni po pracy."},
+            {"en": "They weren’t at the airport.", "pl": "Oni nie byli na lotnisku."},
+        ],
+    }
+]
+
+
+# ============================
+# LEKCJE
+# ============================
+
+def norm(s: str) -> str:
+    s = (s or "").strip().lower()
+    for ch in ["!", ".", ",", "?", ";", ":", "’", "'", "…", "–", "—"]:
+        s = s.replace(ch, "")
+    s = " ".join(s.split())
+    return s
+
+
+LESSONS = [
+    # -------------------- 1 --------------------
+    {
+        "id": 1,
+        "title": "Lekcja 1: Podstawowe zwroty – przedstawianie się",
+        "level": "A1",
+        "goal": "Umiesz się przywitać, przedstawić i zapytać o imię.",
+        "required_phrases": [
+            {"en": "Hi!", "pl": "Cześć!"},
+            {"en": "Hello!", "pl": "Witaj! / Dzień dobry!"},
+            {"en": "My name is ...", "pl": "Mam na imię ..."},
+            {"en": "What's your name?", "pl": "Jak masz na imię?"},
+            {"en": "Nice to meet you.", "pl": "Miło mi cię poznać."},
+            {"en": "How are you?", "pl": "Jak się masz?"},
+            {"en": "I'm fine, thanks.", "pl": "W porządku, dzięki."},
+            {"en": "Where are you from?", "pl": "Skąd jesteś?"},
+            {"en": "I'm from Poland.", "pl": "Jestem z Polski."},
+            {"en": "Goodbye!", "pl": "Do widzenia!"},
+        ],
+        "dialog": [
+            {"spk": "A", "en": "Hi! My name is Tom. What's your name?", "pl": "Cześć! Mam na imię Tom. Jak masz na imię?"},
+            {"spk": "B", "en": "Hello! I'm Anna. Nice to meet you.", "pl": "Witaj! Jestem Anna. Miło mi cię poznać."},
+            {"spk": "A", "en": "Nice to meet you too. How are you?", "pl": "Miło mi również. Jak się masz?"},
+            {"spk": "B", "en": "I'm fine, thanks. Where are you from?", "pl": "W porządku, dzięki. Skąd jesteś?"},
+            {"spk": "A", "en": "I'm from Poland. Goodbye!", "pl": "Jestem z Polski. Do widzenia!"},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zwroty (EN → PL)",
+                "items": [
+                    {"en": "What's your name?", "pl": "Jak masz na imię?"},
+                    {"en": "Nice to meet you.", "pl": "Miło mi cię poznać."},
+                    {"en": "Where are you from?", "pl": "Skąd jesteś?"},
+                    {"en": "I'm fine, thanks.", "pl": "W porządku, dzięki."},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "My ____ is Anna.", "answer": "name", "hint": "name = imię"},
+                    {"sentence": "Nice to ____ you.", "answer": "meet", "hint": "meet = poznać"},
+                    {"sentence": "Where are you ____?", "answer": "from", "hint": "from = z"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak powiesz „Jak masz na imię?” po angielsku?", "a": "What's your name?"},
+                    {"q": "Jak powiesz „Miło mi cię poznać.” po angielsku?", "a": "Nice to meet you."},
+                ],
+            },
+        ],
+    },
+
+    # -------------------- 2 --------------------
+    {
+        "id": 2,
+        "title": "Lekcja 2: Ile masz lat? – wiek, data urodzenia i zajęcie",
+        "level": "A1/A2",
+        "goal": "Umiesz zapytać o wiek, powiedzieć ile masz lat i czym się zajmujesz.",
+        "required_phrases": [
+            {"en": "How old are you?", "pl": "Ile masz lat?"},
+            {"en": "I'm ... years old.", "pl": "Mam ... lat."},
+            {"en": "When were you born?", "pl": "Kiedy się urodziłeś/urodziłaś?"},
+            {"en": "I was born in ...", "pl": "Urodziłem/am się w ..."},
+            {"en": "What do you do?", "pl": "Czym się zajmujesz?"},
+            {"en": "I'm a student.", "pl": "Jestem studentem/studentką."},
+            {"en": "I work as a ...", "pl": "Pracuję jako ..."},
+            {"en": "I live in ...", "pl": "Mieszkam w ..."},
+            {"en": "That's interesting.", "pl": "To ciekawe."},
+        ],
+        "dialog": [
+            {"spk": "A", "en": "Hi! How old are you?", "pl": "Cześć! Ile masz lat?"},
+            {"spk": "B", "en": "I'm 25 years old. What about you?", "pl": "Mam 25 lat. A ty?"},
+            {"spk": "A", "en": "I'm 30. When were you born?", "pl": "Mam 30. Kiedy się urodziłeś/urodziłaś?"},
+            {"spk": "B", "en": "I was born in 2000. What do you do?", "pl": "Urodziłem/am się w 2000 roku. Czym się zajmujesz?"},
+            {"spk": "A", "en": "I work as a programmer. I live in Warsaw.", "pl": "Pracuję jako programista. Mieszkam w Warszawie."},
+            {"spk": "B", "en": "That's interesting!", "pl": "To ciekawe!"},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zwroty (EN → PL)",
+                "items": [
+                    {"en": "How old are you?", "pl": "Ile masz lat?"},
+                    {"en": "When were you born?", "pl": "Kiedy się urodziłeś/urodziłaś?"},
+                    {"en": "What do you do?", "pl": "Czym się zajmujesz?"},
+                    {"en": "That's interesting.", "pl": "To ciekawe."},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "I'm 20 ____ old.", "answer": "years", "hint": "years = lat"},
+                    {"sentence": "I was ____ in 1999.", "answer": "born", "hint": "born = urodzony"},
+                    {"sentence": "I ____ as a teacher.", "answer": "work", "hint": "work = pracować"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak powiesz „Mam 18 lat.” po angielsku?", "a": "I'm 18 years old."},
+                    {"q": "Jak powiesz „Urodziłem/am się w 2005.” po angielsku?", "a": "I was born in 2005."},
+                ],
+            },
+        ],
+    },
+
+    # -------------------- 2.1 (21) --------------------
+    {
+        "id": 21,
+        "title": "Lekcja 2.1: Opis o sobie – Dominik (A1/A2)",
+        "level": "A1/A2",
+        "goal": "Umiesz krótko opisać siebie: imię, wiek, zawód, miejsce i wygląd.",
+        "required_phrases": [
+            {"en": "My name is Dominik.", "pl": "Mam na imię Dominik."},
+            {"en": "I am 22 years old.", "pl": "Mam 22 lata."},
+            {"en": "I am a software tester in IT.", "pl": "Jestem testerem oprogramowania w IT."},
+            {"en": "I live in Bzinica Stara in Poland.", "pl": "Mieszkam w Bzinicy Starej w Polsce."},
+            {"en": "I have got blue eyes.", "pl": "Mam niebieskie oczy."},
+            {"en": "I have got brown hair.", "pl": "Mam brązowe włosy."},
+            {"en": "I have got a light face.", "pl": "Mam jasną twarz."},
+            {"en": "I have got a short beard.", "pl": "Mam krótką brodę."},
+            {"en": "I wear glasses.", "pl": "Noszę okulary."},
+        ],
+        "dialog": [
+            {
+                "spk": "TEXT",
+                "en": "My name is Dominik. I am 22 years old. I am a software tester in IT. "
+                      "I live in Bzinica Stara in Poland. I have got blue eyes and brown hair. "
+                      "I have got a light face and a short beard. I wear glasses.",
+                "pl": "Mam na imię Dominik. Mam 22 lata. Jestem testerem oprogramowania w IT. "
+                      "Mieszkam w Bzinicy Starej w Polsce. Mam niebieskie oczy i brązowe włosy. "
+                      "Mam jasną twarz i krótką brodę. Noszę okulary.",
+            }
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zdania (EN → PL)",
+                "items": [
+                    {"en": "My name is Dominik.", "pl": "Mam na imię Dominik."},
+                    {"en": "I am 22 years old.", "pl": "Mam 22 lata."},
+                    {"en": "I wear glasses.", "pl": "Noszę okulary."},
+                    {"en": "I have got brown hair.", "pl": "Mam brązowe włosy."},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "My ____ is Dominik.", "answer": "name", "hint": "name = imię"},
+                    {"sentence": "I am 22 ____ old.", "answer": "years", "hint": "years old = lat"},
+                    {"sentence": "I ____ in Bzinica Stara in Poland.", "answer": "live", "hint": "live = mieszkać"},
+                    {"sentence": "I have got ____ eyes.", "answer": "blue", "hint": "blue = niebieskie"},
+                    {"sentence": "I wear ____.", "answer": "glasses", "hint": "glasses = okulary"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak powiesz „Jestem testerem oprogramowania w IT.” po angielsku?", "a": "I am a software tester in IT."},
+                    {"q": "Jak powiesz „Mam krótką brodę.” po angielsku?", "a": "I have got a short beard."},
+                    {"q": "Jak powiesz „Mieszkam w Bzinicy Starej w Polsce.” po angielsku?", "a": "I live in Bzinica Stara in Poland."},
+                ],
+            },
+        ],
+    },
+
+    # -------------------- 3.x airport lessons --------------------
+    {
+        "id": 31,
+        "title": "Lekcja 3.1: Lotnisko – Odprawa / Check-in (Pasażer)",
+        "level": "A1/A2",
+        "goal": "Umiesz przejść odprawę: check-in, dokumenty, bagaż, miejsce i punktualność.",
+        "required_phrases": [
+            {"en": "I’d like to check in, please.", "pl": "Chciałbym się odprawić."},
+            {"en": "Here is my passport and ticket.", "pl": "Oto paszport i bilet."},
+            {"en": "I have a reservation.", "pl": "Mam rezerwację."},
+            {"en": "I have luggage to check in.", "pl": "Mam bagaż do nadania."},
+            {"en": "I have only hand luggage.", "pl": "Mam tylko bagaż podręczny."},
+            {"en": "Can I have a window seat?", "pl": "Czy mogę dostać miejsce przy oknie?"},
+            {"en": "Can I have an aisle seat?", "pl": "Czy mogę dostać miejsce przy przejściu?"},
+            {"en": "Is the flight on time?", "pl": "Czy lot jest punktualny?"},
+        ],
+        "dialog": [
+            {"spk": "Passenger", "en": "I’d like to check in, please.", "pl": "Chciałbym się odprawić."},
+            {"spk": "Agent", "en": "Sure. Do you have a reservation?", "pl": "Oczywiście. Czy ma Pan/Pani rezerwację?"},
+            {"spk": "Passenger", "en": "I have a reservation. Here is my passport and ticket.", "pl": "Mam rezerwację. Oto paszport i bilet."},
+            {"spk": "Agent", "en": "Do you have luggage to check in?", "pl": "Czy ma Pan/Pani bagaż do nadania?"},
+            {"spk": "Passenger", "en": "I have luggage to check in.", "pl": "Mam bagaż do nadania."},
+            {"spk": "Passenger", "en": "Can I have a window seat?", "pl": "Czy mogę dostać miejsce przy oknie?"},
+            {"spk": "Agent", "en": "Yes. The flight is on time.", "pl": "Tak. Lot jest punktualny."},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zwroty (EN → PL)",
+                "items": [
+                    {"en": "I’d like to check in, please.", "pl": "Chciałbym się odprawić."},
+                    {"en": "Here is my passport and ticket.", "pl": "Oto paszport i bilet."},
+                    {"en": "I have only hand luggage.", "pl": "Mam tylko bagaż podręczny."},
+                    {"en": "Is the flight on time?", "pl": "Czy lot jest punktualny?"},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "I’d like to ____ in, please.", "answer": "check", "hint": "check in = odprawić się"},
+                    {"sentence": "Here is my passport and ____.", "answer": "ticket", "hint": "ticket = bilet"},
+                    {"sentence": "Can I have a ____ seat?", "answer": "window", "hint": "window seat = miejsce przy oknie"},
+                    {"sentence": "Is the flight on ____?", "answer": "time", "hint": "on time = punktualnie"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak powiesz „Mam bagaż do nadania” po angielsku?", "a": "I have luggage to check in."},
+                    {"q": "Jak powiesz „Czy lot jest punktualny?” po angielsku?", "a": "Is the flight on time?"},
+                ],
+            },
+        ],
+    },
+
+    {
+        "id": 32,
+        "title": "Lekcja 3.2: Lotnisko – Odprawa / Check-in (Obsługa)",
+        "level": "A1/A2",
+        "goal": "Rozumiesz pytania obsługi podczas odprawy.",
+        "required_phrases": [
+            {"en": "May I see your passport?", "pl": "Czy mogę zobaczyć paszport?"},
+            {"en": "How many bags are you checking in?", "pl": "Ile bagaży nadajesz?"},
+            {"en": "Here is your boarding pass.", "pl": "Oto karta pokładowa."},
+        ],
+        "dialog": [
+            {"spk": "Agent", "en": "Good morning. May I see your passport?", "pl": "Dzień dobry. Czy mogę zobaczyć paszport?"},
+            {"spk": "Passenger", "en": "Of course. Here you are.", "pl": "Oczywiście. Proszę bardzo."},
+            {"spk": "Agent", "en": "How many bags are you checking in?", "pl": "Ile bagaży nadajesz?"},
+            {"spk": "Passenger", "en": "One bag, please.", "pl": "Jeden bagaż, proszę."},
+            {"spk": "Agent", "en": "Here is your boarding pass.", "pl": "Oto karta pokładowa."},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zwroty (EN → PL)",
+                "items": [
+                    {"en": "May I see your passport?", "pl": "Czy mogę zobaczyć paszport?"},
+                    {"en": "How many bags are you checking in?", "pl": "Ile bagaży nadajesz?"},
+                    {"en": "Here is your boarding pass.", "pl": "Oto karta pokładowa."},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "May I ____ your passport?", "answer": "see", "hint": "see = widzieć"},
+                    {"sentence": "How many ____ are you checking in?", "answer": "bags", "hint": "bags = bagaże"},
+                    {"sentence": "Here is your ____ pass.", "answer": "boarding", "hint": "boarding pass = karta pokładowa"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak obsługa powie „Czy mogę zobaczyć paszport?” po angielsku?", "a": "May I see your passport?"},
+                    {"q": "Jak obsługa powie „Oto karta pokładowa.” po angielsku?", "a": "Here is your boarding pass."},
+                ],
+            },
+        ],
+    },
+
+    {
+        "id": 33,
+        "title": "Lekcja 3.3: Lotnisko – Bagaż (Baggage)",
+        "level": "A1/A2",
+        "goal": "Znasz podstawowe słownictwo dotyczące bagażu na lotnisku.",
+        "required_phrases": [
+            {"en": "checked baggage", "pl": "bagaż rejestrowany"},
+            {"en": "carry-on baggage", "pl": "bagaż podręczny"},
+            {"en": "hand luggage", "pl": "bagaż podręczny"},
+            {"en": "overweight baggage", "pl": "bagaż z nadwagą"},
+            {"en": "fragile", "pl": "delikatny"},
+            {"en": "lost luggage", "pl": "zagubiony bagaż"},
+        ],
+        "dialog": [
+            {"spk": "Agent", "en": "Do you have any checked baggage?", "pl": "Czy ma Pan/Pani bagaż rejestrowany?"},
+            {"spk": "Passenger", "en": "Yes, I have one checked baggage.", "pl": "Tak, mam jeden bagaż rejestrowany."},
+            {"spk": "Agent", "en": "Is your bag fragile?", "pl": "Czy bagaż jest delikatny?"},
+            {"spk": "Passenger", "en": "Yes, it is fragile.", "pl": "Tak, jest delikatny."},
+            {"spk": "Agent", "en": "Your baggage is overweight.", "pl": "Pana/Pani bagaż ma nadwagę."},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj słowa (EN → PL)",
+                "items": [
+                    {"en": "checked baggage", "pl": "bagaż rejestrowany"},
+                    {"en": "hand luggage", "pl": "bagaż podręczny"},
+                    {"en": "overweight baggage", "pl": "bagaż z nadwagą"},
+                    {"en": "lost luggage", "pl": "zagubiony bagaż"},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "This is my ____ baggage.", "answer": "checked", "hint": "checked baggage = rejestrowany"},
+                    {"sentence": "My baggage is ____.", "answer": "overweight", "hint": "overweight = z nadwagą"},
+                    {"sentence": "The bag is ____.", "answer": "fragile", "hint": "fragile = delikatny"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak powiesz „zagubiony bagaż” po angielsku?", "a": "lost luggage"},
+                    {"q": "Jak powiesz „bagaż podręczny” po angielsku?", "a": "hand luggage"},
+                ],
+            },
+        ],
+    },
+
+    {
+        "id": 34,
+        "title": "Lekcja 3.4: Lotnisko – Kontrola bezpieczeństwa (Security)",
+        "level": "A1/A2",
+        "goal": "Rozumiesz polecenia i pytania obsługi podczas kontroli bezpieczeństwa.",
+        "required_phrases": [
+            {"en": "Please remove your shoes.", "pl": "Proszę zdjąć buty."},
+            {"en": "Take your laptop out of the bag.", "pl": "Wyjmij laptopa z torby."},
+            {"en": "Put your liquids in the tray.", "pl": "Włóż płyny do pojemnika."},
+            {"en": "Walk through the scanner.", "pl": "Przejdź przez skaner."},
+            {"en": "Do you have any liquids?", "pl": "Czy masz jakieś płyny?"},
+        ],
+        "dialog": [
+            {"spk": "Officer", "en": "Please remove your shoes.", "pl": "Proszę zdjąć buty."},
+            {"spk": "Officer", "en": "Do you have any liquids?", "pl": "Czy masz jakieś płyny?"},
+            {"spk": "Passenger", "en": "Yes, I have liquids in my bag.", "pl": "Tak, mam płyny w torbie."},
+            {"spk": "Officer", "en": "Put your liquids in the tray.", "pl": "Włóż płyny do pojemnika."},
+            {"spk": "Officer", "en": "Take your laptop out of the bag.", "pl": "Wyjmij laptopa z torby."},
+            {"spk": "Officer", "en": "Walk through the scanner.", "pl": "Przejdź przez skaner."},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj polecenia (EN → PL)",
+                "items": [
+                    {"en": "Please remove your shoes.", "pl": "Proszę zdjąć buty."},
+                    {"en": "Put your liquids in the tray.", "pl": "Włóż płyny do pojemnika."},
+                    {"en": "Walk through the scanner.", "pl": "Przejdź przez skaner."},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "Please remove your ____.", "answer": "shoes", "hint": "shoes = buty"},
+                    {"sentence": "Put your ____ in the tray.", "answer": "liquids", "hint": "liquids = płyny"},
+                    {"sentence": "Walk ____ the scanner.", "answer": "through", "hint": "through = przez"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak obsługa powie „Wyjmij laptopa z torby” po angielsku?", "a": "Take your laptop out of the bag."},
+                    {"q": "Jak obsługa zapyta „Czy masz jakieś płyny?” po angielsku?", "a": "Do you have any liquids?"},
+                ],
+            },
+        ],
+    },
+
+    {
+        "id": 35,
+        "title": "Lekcja 3.5: Lotnisko – Kontrola paszportowa (Passport Control)",
+        "level": "A1/A2",
+        "goal": "Potrafisz odpowiedzieć: cel podróży, czas pobytu, miejsce zakwaterowania.",
+        "required_phrases": [
+            {"en": "What is the purpose of your visit?", "pl": "Jaki jest cel wizyty?"},
+            {"en": "Tourism", "pl": "Turystyka"},
+            {"en": "Business", "pl": "Biznes"},
+            {"en": "Work", "pl": "Praca"},
+            {"en": "How long are you staying?", "pl": "Jak długo zostajesz?"},
+            {"en": "Where will you stay?", "pl": "Gdzie będziesz mieszkać?"},
+        ],
+        "dialog": [
+            {"spk": "Officer", "en": "What is the purpose of your visit?", "pl": "Jaki jest cel wizyty?"},
+            {"spk": "Passenger", "en": "Tourism.", "pl": "Turystyka."},
+            {"spk": "Officer", "en": "How long are you staying?", "pl": "Jak długo zostajesz?"},
+            {"spk": "Passenger", "en": "I am staying for one week.", "pl": "Zostaję na jeden tydzień."},
+            {"spk": "Officer", "en": "Where will you stay?", "pl": "Gdzie będziesz mieszkać?"},
+            {"spk": "Passenger", "en": "I will stay at a hotel.", "pl": "Będę mieszkać w hotelu."},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj pytania (EN → PL)",
+                "items": [
+                    {"en": "What is the purpose of your visit?", "pl": "Jaki jest cel wizyty?"},
+                    {"en": "How long are you staying?", "pl": "Jak długo zostajesz?"},
+                    {"en": "Where will you stay?", "pl": "Gdzie będziesz mieszkać?"},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "What is the ____ of your visit?", "answer": "purpose", "hint": "purpose = cel"},
+                    {"sentence": "How long are you ____?", "answer": "staying", "hint": "stay = zostawać"},
+                    {"sentence": "Where will you ____?", "answer": "stay", "hint": "stay = nocować/mieszkać"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak odpowiesz „Turystyka” po angielsku?", "a": "Tourism."},
+                    {"q": "Jak zapytają „Jak długo zostajesz?” po angielsku?", "a": "How long are you staying?"},
+                ],
+            },
+        ],
+    },
+
+    {
+        "id": 36,
+        "title": "Lekcja 3.6: Lotnisko – Informacje o locie (Flight Information)",
+        "level": "A1/A2",
+        "goal": "Rozumiesz: departure/arrival, gate, boarding, delayed/cancelled oraz pytania o bramkę/boarding.",
+        "required_phrases": [
+            {"en": "departure", "pl": "odlot"},
+            {"en": "arrival", "pl": "przylot"},
+            {"en": "gate", "pl": "bramka"},
+            {"en": "boarding", "pl": "wejście na pokład"},
+            {"en": "delayed", "pl": "opóźniony"},
+            {"en": "cancelled", "pl": "odwołany"},
+            {"en": "What gate is the flight to London?", "pl": "Z której bramki jest lot do Londynu?"},
+            {"en": "Is boarding starting?", "pl": "Czy zaczyna się boarding?"},
+        ],
+        "dialog": [
+            {"spk": "Passenger", "en": "What gate is the flight to London?", "pl": "Z której bramki jest lot do Londynu?"},
+            {"spk": "Staff", "en": "It departs from gate 24.", "pl": "Odlatuje z bramki 24."},
+            {"spk": "Passenger", "en": "Is boarding starting?", "pl": "Czy zaczyna się boarding?"},
+            {"spk": "Staff", "en": "Not yet. The flight is delayed.", "pl": "Jeszcze nie. Lot jest opóźniony."},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj słowa (EN → PL)",
+                "items": [
+                    {"en": "departure", "pl": "odlot"},
+                    {"en": "arrival", "pl": "przylot"},
+                    {"en": "gate", "pl": "bramka"},
+                    {"en": "boarding", "pl": "wejście na pokład"},
+                    {"en": "delayed", "pl": "opóźniony"},
+                    {"en": "cancelled", "pl": "odwołany"},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "What ____ is the flight to London?", "answer": "gate", "hint": "gate = bramka"},
+                    {"sentence": "Is ____ starting?", "answer": "boarding", "hint": "boarding = wejście na pokład"},
+                    {"sentence": "The flight is ____.", "answer": "delayed", "hint": "delayed = opóźniony"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak zapytasz „Czy zaczyna się boarding?” po angielsku?", "a": "Is boarding starting?"},
+                    {"q": "Jak powiesz „Lot jest odwołany” po angielsku?", "a": "The flight is cancelled."},
+                ],
+            },
+        ],
+    },
+
+    {
+        "id": 37,
+        "title": "Lekcja 3.7: Na pokładzie samolotu (On board)",
+        "level": "A1/A2",
+        "goal": "Umiesz znaleźć miejsce, zapytać o torbę, wodę, miejsce zajęte i rozumiesz polecenie o pasach.",
+        "required_phrases": [
+            {"en": "Where is my seat?", "pl": "Gdzie jest moje miejsce?"},
+            {"en": "Can I put my bag here?", "pl": "Czy mogę tu położyć torbę?"},
+            {"en": "Could I have some water, please?", "pl": "Czy mogę prosić o wodę?"},
+            {"en": "Is this seat taken?", "pl": "Czy to miejsce jest zajęte?"},
+            {"en": "Fasten your seatbelt.", "pl": "Zapnij pasy."},
+        ],
+        "dialog": [
+            {"spk": "Passenger", "en": "Excuse me, where is my seat?", "pl": "Przepraszam, gdzie jest moje miejsce?"},
+            {"spk": "Crew", "en": "Your seat is 14A.", "pl": "Twoje miejsce to 14A."},
+            {"spk": "Passenger", "en": "Is this seat taken?", "pl": "Czy to miejsce jest zajęte?"},
+            {"spk": "Crew", "en": "Please fasten your seatbelt.", "pl": "Proszę zapiąć pasy."},
+            {"spk": "Passenger", "en": "Could I have some water, please?", "pl": "Czy mogę prosić o wodę?"},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zdania (EN → PL)",
+                "items": [
+                    {"en": "Where is my seat?", "pl": "Gdzie jest moje miejsce?"},
+                    {"en": "Is this seat taken?", "pl": "Czy to miejsce jest zajęte?"},
+                    {"en": "Fasten your seatbelt.", "pl": "Zapnij pasy."},
+                    {"en": "Could I have some water, please?", "pl": "Czy mogę prosić o wodę?"},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "Where is my ____?", "answer": "seat", "hint": "seat = miejsce"},
+                    {"sentence": "Fasten your ____.", "answer": "seatbelt", "hint": "seatbelt = pas"},
+                    {"sentence": "Could I have some ____ , please?", "answer": "water", "hint": "water = woda"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak powiesz „Czy to miejsce jest zajęte?” po angielsku?", "a": "Is this seat taken?"},
+                    {"q": "Jak powiesz „Zapnij pasy” po angielsku?", "a": "Fasten your seatbelt."},
+                ],
+            },
+        ],
+    },
+
+    {
+        "id": 38,
+        "title": "Lekcja 3.8: Po przylocie – Bagaż, cło i ogólne zwroty",
+        "level": "A1/A2",
+        "goal": "Umiesz zapytać o odbiór bagażu, zgłosić brak bagażu, przejść cło i używać uniwersalnych zwrotów.",
+        "required_phrases": [
+            {"en": "Where is baggage claim?", "pl": "Gdzie jest odbiór bagażu?"},
+            {"en": "My luggage didn’t arrive.", "pl": "Mój bagaż nie dotarł."},
+            {"en": "Nothing to declare.", "pl": "Nic do oclenia."},
+            {"en": "Something to declare.", "pl": "Mam coś do oclenia."},
+            {"en": "Excuse me.", "pl": "Przepraszam."},
+            {"en": "Thank you.", "pl": "Dziękuję."},
+            {"en": "Thanks a lot.", "pl": "Dziękuję bardzo."},
+            {"en": "Could you help me?", "pl": "Czy możesz mi pomóc?"},
+            {"en": "I don’t understand.", "pl": "Nie rozumiem."},
+            {"en": "Could you repeat, please?", "pl": "Czy możesz powtórzyć?"},
+        ],
+        "dialog": [
+            {"spk": "Passenger", "en": "Excuse me, where is baggage claim?", "pl": "Przepraszam, gdzie jest odbiór bagażu?"},
+            {"spk": "Staff", "en": "Baggage claim is straight ahead.", "pl": "Odbiór bagażu jest prosto."},
+            {"spk": "Passenger", "en": "My luggage didn’t arrive. Could you help me?", "pl": "Mój bagaż nie dotarł. Czy możesz mi pomóc?"},
+            {"spk": "Customs", "en": "Do you have anything to declare?", "pl": "Czy ma Pan/Pani coś do oclenia?"},
+            {"spk": "Passenger", "en": "Nothing to declare.", "pl": "Nic do oclenia."},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zwroty (EN → PL)",
+                "items": [
+                    {"en": "Where is baggage claim?", "pl": "Gdzie jest odbiór bagażu?"},
+                    {"en": "My luggage didn’t arrive.", "pl": "Mój bagaż nie dotarł."},
+                    {"en": "Nothing to declare.", "pl": "Nic do oclenia."},
+                    {"en": "Could you help me?", "pl": "Czy możesz mi pomóc?"},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "Where is baggage ____?", "answer": "claim", "hint": "baggage claim = odbiór bagażu"},
+                    {"sentence": "My luggage didn’t ____.", "answer": "arrive", "hint": "arrive = dotrzeć"},
+                    {"sentence": "I don’t ____.", "answer": "understand", "hint": "understand = rozumieć"},
+                    {"sentence": "Could you ____ , please?", "answer": "repeat", "hint": "repeat = powtórzyć"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak powiesz „Mój bagaż nie dotarł” po angielsku?", "a": "My luggage didn’t arrive."},
+                    {"q": "Jak powiesz „Nic do oclenia” po angielsku?", "a": "Nothing to declare."},
+                ],
+            },
+        ],
+    },
+
+    # -------------------- 4 (kawiarnia) --------------------
+    {
+        "id": 40,
+        "title": "Lekcja 4: Kawiarnia – Zamawianie kawy",
+        "level": "A1",
+        "goal": "Potrafisz zamówić kawę w kawiarni: wybrać rodzaj, dodatki, rozmiar i zapłacić.",
+        "required_phrases": [
+            {"en": "What coffee would you like?", "pl": "Jaką kawę chciałbyś/chciałabyś?"},
+            {"en": "I would like a coffee, please.", "pl": "Poproszę kawę."},
+            {"en": "cappuccino", "pl": "cappuccino"},
+            {"en": "espresso", "pl": "espresso"},
+            {"en": "iced coffee", "pl": "kawa mrożona"},
+            {"en": "Could I have some milk in my coffee, please?", "pl": "Poproszę mleko do kawy."},
+            {"en": "Would you like any sugar?", "pl": "Czy chciałbyś/chciałabyś cukier?"},
+            {"en": "Without sugar.", "pl": "Bez cukru."},
+            {"en": "What size would you like?", "pl": "Jaki rozmiar?"},
+            {"en": "Medium, please.", "pl": "Średni, proszę."},
+            {"en": "I’ll pay by card.", "pl": "Zapłacę kartą."},
+        ],
+        "dialog": [
+            {"spk": "Barista", "en": "Good morning! What coffee would you like?", "pl": "Dzień dobry! Jaką kawę chciałbyś/chciałabyś?"},
+            {"spk": "Customer", "en": "Yes, I would like a coffee, please.", "pl": "Tak, poproszę kawę."},
+            {"spk": "Barista", "en": "Would you like to try a cappuccino, espresso, or iced coffee?", "pl": "Czy chciałbyś/chciałabyś spróbować cappuccino, espresso czy kawy mrożonej?"},
+            {"spk": "Customer", "en": "An iced coffee, please.", "pl": "Poproszę kawę mrożoną."},
+            {"spk": "Customer", "en": "Could I have some milk in my coffee, please?", "pl": "Poproszę mleko do kawy."},
+            {"spk": "Barista", "en": "Sure! Would you like any sugar?", "pl": "Oczywiście! Czy chciałbyś/chciałabyś cukier?"},
+            {"spk": "Customer", "en": "No, please. Without sugar.", "pl": "Nie, proszę. Bez cukru."},
+            {"spk": "Barista", "en": "What size would you like?", "pl": "Jaki rozmiar?"},
+            {"spk": "Customer", "en": "Medium, please.", "pl": "Średni, proszę."},
+            {"spk": "Barista", "en": "Perfect! May I have your name for the order?", "pl": "Świetnie! Czy mogę prosić o imię do zamówienia?"},
+            {"spk": "Customer", "en": "My name is Dominik.", "pl": "Mam na imię Dominik."},
+            {"spk": "Barista", "en": "Thanks, Dominik! That will be five dollars.", "pl": "Dziękuję, Dominik! To będzie pięć dolarów."},
+            {"spk": "Customer", "en": "I’ll pay by card.", "pl": "Zapłacę kartą."},
+            {"spk": "Barista", "en": "Here you go. Enjoy your coffee!", "pl": "Proszę bardzo. Smacznej kawy!"},
+            {"spk": "Customer", "en": "Thank you! Have a nice day!", "pl": "Dziękuję! Miłego dnia!"},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zwroty (EN → PL)",
+                "items": [
+                    {"en": "What coffee would you like?", "pl": "Jaką kawę chciałbyś/chciałabyś?"},
+                    {"en": "An iced coffee, please.", "pl": "Poproszę kawę mrożoną."},
+                    {"en": "Without sugar.", "pl": "Bez cukru."},
+                    {"en": "I’ll pay by card.", "pl": "Zapłacę kartą."},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "Could I have some ____ in my coffee, please?", "answer": "milk", "hint": "milk = mleko"},
+                    {"sentence": "What ____ would you like?", "answer": "size", "hint": "size = rozmiar"},
+                    {"sentence": "I’ll pay by ____.", "answer": "card", "hint": "card = karta"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak powiesz „Poproszę mleko do kawy” po angielsku?", "a": "Could I have some milk in my coffee, please?"},
+                    {"q": "Jak powiesz „Bez cukru” po angielsku?", "a": "Without sugar."},
+                ],
+            },
+        ],
+    },
+
+    # -------------------- 4.1 (restauracja) --------------------
+    {
+        "id": 41,
+        "title": "Lekcja 4.1: Restauracja – Zamawianie jedzenia",
+        "level": "A1/A2",
+        "goal": "Potrafisz zamówić jedzenie: poprosić o menu, złożyć zamówienie, poprosić o rachunek i zapłacić.",
+        "required_phrases": [
+            {"en": "A table for one / two, please.", "pl": "Stolik dla jednej osoby / dwóch osób, proszę."},
+            {"en": "Could we have the menu, please?", "pl": "Czy możemy prosić o menu?"},
+            {"en": "I would like to order, please.", "pl": "Chciałbym/chciałabym złożyć zamówienie."},
+            {"en": "I’ll have the chicken, please.", "pl": "Poproszę kurczaka."},
+            {"en": "Can I have a glass of water, please?", "pl": "Czy mogę prosić o szklankę wody?"},
+            {"en": "No onions, please.", "pl": "Bez cebuli, proszę."},
+            {"en": "Could I get the bill, please?", "pl": "Czy mogę prosić o rachunek?"},
+            {"en": "Can I pay by card?", "pl": "Czy mogę zapłacić kartą?"},
+            {"en": "Thank you. It was delicious.", "pl": "Dziękuję. Było pyszne."},
+        ],
+        "dialog": [
+            {"spk": "Waiter", "en": "Good evening! A table for one or two?", "pl": "Dobry wieczór! Stolik dla jednej osoby czy dla dwóch?"},
+            {"spk": "Customer", "en": "A table for one, please.", "pl": "Stolik dla jednej osoby, proszę."},
+            {"spk": "Customer", "en": "Could we have the menu, please?", "pl": "Czy możemy prosić o menu?"},
+            {"spk": "Waiter", "en": "Of course. Here you are.", "pl": "Oczywiście. Proszę bardzo."},
+            {"spk": "Customer", "en": "I would like to order, please. I’ll have the chicken, please.", "pl": "Chciałbym/chciałabym złożyć zamówienie. Poproszę kurczaka."},
+            {"spk": "Customer", "en": "No onions, please.", "pl": "Bez cebuli, proszę."},
+            {"spk": "Customer", "en": "Could I get the bill, please?", "pl": "Czy mogę prosić o rachunek?"},
+            {"spk": "Waiter", "en": "Sure.", "pl": "Oczywiście."},
+            {"spk": "Customer", "en": "Can I pay by card?", "pl": "Czy mogę zapłacić kartą?"},
+            {"spk": "Customer", "en": "Thank you. It was delicious.", "pl": "Dziękuję. Było pyszne."},
+        ],
+        "exercises": [
+            {
+                "type": "match",
+                "title": "Dopasuj zwroty (EN → PL)",
+                "items": [
+                    {"en": "Could we have the menu, please?", "pl": "Czy możemy prosić o menu?"},
+                    {"en": "I would like to order, please.", "pl": "Chciałbym/chciałabym złożyć zamówienie."},
+                    {"en": "Could I get the bill, please?", "pl": "Czy mogę prosić o rachunek?"},
+                    {"en": "Can I pay by card?", "pl": "Czy mogę zapłacić kartą?"},
+                ],
+            },
+            {
+                "type": "fill",
+                "title": "Uzupełnij luki",
+                "items": [
+                    {"sentence": "Could we have the ____, please?", "answer": "menu", "hint": "menu = menu"},
+                    {"sentence": "I would like to ____, please.", "answer": "order", "hint": "order = zamówić"},
+                    {"sentence": "Could I get the ____, please?", "answer": "bill", "hint": "bill = rachunek"},
+                    {"sentence": "Can I pay by ____?", "answer": "card", "hint": "card = karta"},
+                ],
+            },
+            {
+                "type": "quiz",
+                "title": "Mini quiz",
+                "items": [
+                    {"q": "Jak poprosisz o menu po angielsku?", "a": "Could we have the menu, please?"},
+                    {"q": "Jak powiesz „Bez cebuli, proszę” po angielsku?", "a": "No onions, please."},
+                    {"q": "Jak poprosisz o rachunek po angielsku?", "a": "Could I get the bill, please?"},
+                ],
+            },
+        ],
+    },
+]
+
+
+def load_lesson_progress() -> dict:
+    if not os.path.exists(LESSONS_FILE):
+        return {"completed": {}, "scores": {}}
+    with open(LESSONS_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_lesson_progress(p: dict) -> None:
+    with open(LESSONS_FILE, "w", encoding="utf-8") as f:
+        json.dump(p, f, ensure_ascii=False, indent=2)
+
+
+def lesson_missing_phrases(words_dict: dict, lesson: dict) -> list:
+    words = list(words_dict.values())
+    missing = []
+    for rp in lesson["required_phrases"]:
+        found = any(norm(w.en) == norm(rp["en"]) and norm(w.pl) == norm(rp["pl"]) for w in words)
+        if not found:
+            missing.append(rp)
+    return missing
+
+
+# ============================
+# UI (wbudowany HTML/CSS)
+# ============================
+
+BASE_HTML = """
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{{title}}</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial; background:#0b1220; color:#e7eefc; margin:0}
+    a{color:#a7c5ff; text-decoration:none}
+    .top{display:flex; gap:12px; align-items:center; justify-content:space-between; padding:14px 18px; background:rgba(255,255,255,0.04); position:sticky; top:0; backdrop-filter: blur(8px)}
+    .brand{font-weight:800}
+    .nav a{margin-right:10px; padding:8px 10px; border-radius:12px; background:rgba(255,255,255,0.05)}
+    .wrap{max-width:1100px; margin:0 auto; padding:18px}
+    .grid{display:grid; grid-template-columns: 1.15fr 0.85fr; gap:16px}
+    @media(max-width:900px){ .grid{grid-template-columns:1fr} }
+    .card{background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.09); border-radius:18px; padding:14px}
+    .btn{display:inline-block; padding:10px 14px; border-radius:14px;
+      background: linear-gradient(135deg,#7c3aed,#2563eb);
+      color:white; border:none; cursor:pointer; font-weight:700;
+      box-shadow: 0 12px 30px rgba(37,99,235,0.25);
+      transition: transform .12s ease, filter .12s ease;
+    }
+    .btn:hover{transform: translateY(-1px); filter: brightness(1.06)}
+    .btn:active{transform: translateY(0px); filter: brightness(0.98)}
+    .btn-ghost{background: rgba(255,255,255,0.08); box-shadow:none}
+    .danger{background: linear-gradient(135deg,#ef4444,#b91c1c);}
+    input, textarea, select{
+      width:100%; padding:10px 12px; border-radius:14px;
+      border:1px solid rgba(255,255,255,0.12);
+      background: rgba(0,0,0,0.25); color:#e7eefc;
+      outline:none;
+    }
+    textarea{min-height:84px; resize:vertical}
+    .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+    .muted{opacity:.85}
+    .pill{display:inline-block; padding:4px 10px; border-radius:999px; background:rgba(255,255,255,0.08); margin-right:6px; font-size:12px}
+    .list{display:flex; flex-direction:column; gap:10px}
+    .hr{height:1px; background:rgba(255,255,255,0.08); margin:12px 0}
+    .actions{display:flex; gap:8px; flex-wrap:wrap}
+    .big{font-size:26px; font-weight:900}
+    .flash{padding:10px 12px; border-radius:14px; margin:0 0 12px 0; background:rgba(34,197,94,0.15); border:1px solid rgba(34,197,94,0.25)}
+    .flash.err{background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.25)}
+    code{background: rgba(255,255,255,0.08); padding:2px 6px; border-radius:8px}
+    table{width:100%; border-collapse:collapse}
+    th,td{border-bottom:1px solid rgba(255,255,255,0.08); padding:10px; text-align:left}
+    th{opacity:.9}
+  </style>
+</head>
+<body>
+  <div class="top">
+    <div class="brand">{{title}}</div>
+    <div class="nav">
+      <a href="{{ url_for('home') }}">Start</a>
+      <a href="{{ url_for('materials_list') }}">Materiały</a>
+      <a href="{{ url_for('lessons_list') }}">Lekcje</a>
+      <a href="{{ url_for('words_page') }}">Słownik</a>
+      <a href="{{ url_for('quiz_page') }}">Quiz</a>
+      <a href="{{ url_for('review_page') }}">Powtórki</a>
+      <a href="{{ url_for('stats_page') }}">Statystyki</a>
+      <a href="{{ url_for('settings_page') }}">Import/Eksport</a>
+    </div>
+  </div>
+  <div class="wrap">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for cat,msg in messages %}
+          <div class="flash {% if cat=='err' %}err{% endif %}">{{msg}}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {{ body|safe }}
+  </div>
+</body>
+</html>
+"""
+
+
+def render(body_html: str, **ctx):
+    return render_template_string(BASE_HTML, title=APP_TITLE, body=body_html, **ctx)
+
+
+# ============================
+# ROUTES
+# ============================
+
+@app.route("/")
+def home():
+    words = load_words()
+    total = len(words)
+    due = len(due_words(words))
+    learned = sum(1 for w in words.values() if w.reps >= 3)
+
+    body = f"""
+    <div class="card">
+      <div class="big">Twoja nauka angielskiego</div>
+      <p class="muted">Dodajesz słówka do słownika, a lekcje działają jak w aplikacjach: teoria + dialog + ćwiczenia + zaliczenie.</p>
+    </div>
+
+    <div class="hr"></div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>Dodaj nowe słówko</h2>
+        <form method="post" action="{url_for('add_word')}">
+          <div class="row">
+            <div>
+              <label>Angielski</label>
+              <input name="en" placeholder="np. Could we have the menu, please?" required>
+            </div>
+            <div>
+              <label>Polski</label>
+              <input name="pl" placeholder="np. Czy możemy prosić o menu?" required>
+            </div>
+          </div>
+          <div class="row" style="margin-top:10px">
+            <div>
+              <label>Tagi (po przecinku)</label>
+              <input name="tags" placeholder="np. lesson1, airport, restaurant">
+            </div>
+            <div>
+              <label>Przykład zdania</label>
+              <input name="example" placeholder="np. I would like to order, please.">
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <label>Notatki</label>
+            <textarea name="notes" placeholder="np. wymowa, synonimy..."></textarea>
+          </div>
+          <div class="actions" style="margin-top:12px">
+            <button class="btn" type="submit">Dodaj słówko</button>
+            <a class="btn btn-ghost" href="{url_for('lessons_list')}">Lekcje</a>
+            <a class="btn btn-ghost" href="{url_for('materials_list')}">Materiały</a>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Podsumowanie</h2>
+        <p class="muted">Słówka w bazie: <b>{total}</b></p>
+        <p class="muted">Do powtórki dziś: <b>{due}</b></p>
+        <p class="muted">Utrwalone (reps ≥ 3): <b>{learned}</b></p>
+        <div class="hr"></div>
+        <div class="actions">
+          <a class="btn" href="{url_for('lessons_list')}">Lekcje</a>
+          <a class="btn btn-ghost" href="{url_for('materials_list')}">Materiały</a>
+          <a class="btn btn-ghost" href="{url_for('review_page')}">Powtórki</a>
+        </div>
+      </div>
+    </div>
+    """
+    return render(body)
+
+
+# ----------------------------
+# MATERIAŁY
+# ----------------------------
+
+@app.route("/materials")
+def materials_list():
+    cards = ""
+    for m in MATERIALS:
+        cards += f"""
+        <div class="card">
+          <h3 style="margin:0 0 6px 0">{m["title"]}</h3>
+          <div class="actions" style="margin-top:10px">
+            <a class="btn" href="{url_for('material_view', material_id=m['id'])}">Otwórz</a>
+          </div>
+        </div>
+        """
+
+    body = f"""
+    <div class="card">
+      <h2>Materiały</h2>
+      <p class="muted">Teoria/gramatyka w pigułce. Możesz do tego wracać w dowolnym momencie.</p>
+    </div>
+    <div class="hr"></div>
+    <div class="list">{cards}</div>
+    """
+    return render(body)
+
+
+@app.route("/materials/<material_id>")
+def material_view(material_id: str):
+    m = next((x for x in MATERIALS if x["id"] == material_id), None)
+    if not m:
+        flash("Nie znaleziono materiału.", "err")
+        return redirect(url_for("materials_list"))
+
+    sections_html = ""
+    for sec in m.get("sections", []):
+        rows = "".join([f"<tr><td><b>{it['en']}</b></td><td>{it['pl']}</td></tr>" for it in sec.get("items", [])])
+        sections_html += f"""
+        <div class="card">
+          <h3 style="margin:0 0 10px 0">{sec["title"]}</h3>
+          <table>
+            <thead><tr><th>EN</th><th>PL</th></tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+        </div>
+        """
+
+    ex_rows = "".join([f"<tr><td><b>{e['en']}</b></td><td>{e['pl']}</td></tr>" for e in m.get("examples", [])])
+    examples_html = f"""
+    <div class="card">
+      <h3 style="margin:0 0 10px 0">Przykłady</h3>
+      <table>
+        <thead><tr><th>EN</th><th>PL</th></tr></thead>
+        <tbody>{ex_rows}</tbody>
+      </table>
+    </div>
+    """ if m.get("examples") else ""
+
+    body = f"""
+    <div class="card">
+      <h2>{m["title"]}</h2>
+      <div class="actions" style="margin-top:10px">
+        <a class="btn btn-ghost" href="{url_for('materials_list')}">Wróć</a>
+        <a class="btn btn-ghost" href="{url_for('lessons_list')}">Lekcje</a>
+      </div>
+    </div>
+    <div class="hr"></div>
+    <div class="list">
+      {sections_html}
+      {examples_html}
+    </div>
+    """
+    return render(body)
+
+
+# ----------------------------
+# SŁOWNIK
+# ----------------------------
+
+@app.route("/add", methods=["POST"])
+def add_word():
+    words = load_words()
+
+    en = (request.form.get("en", "") or "").strip()
+    pl = (request.form.get("pl", "") or "").strip()
+    if not en or not pl:
+        flash("Uzupełnij angielski i polski.", "err")
+        return redirect(url_for("home"))
+
+    tags_raw = (request.form.get("tags", "") or "").strip()
+    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+
+    wid = f"w{(len(words) + 1):04d}"
+    w = Word(
+        id=wid,
+        en=en,
+        pl=pl,
+        example=(request.form.get("example", "") or "").strip(),
+        notes=(request.form.get("notes", "") or "").strip(),
+        tags=tags,
+        created_at=now_iso(),
+        next_review=now_iso(),
+        interval_days=0,
+        ease=2.5,
+        reps=0,
+    )
+    words[w.id] = w
+    save_words(words)
+
+    flash("Dodano słówko ✅", "ok")
+    return redirect(url_for("words_page"))
+
+
+@app.route("/words")
+def words_page():
+    words = load_words()
+    q = (request.args.get("q", "") or "").strip().lower()
+    tag = (request.args.get("tag", "") or "").strip()
+
+    items = list(words.values())
+    if q:
+        items = [w for w in items if q in w.en.lower() or q in w.pl.lower() or q in (w.example or "").lower()]
+    if tag:
+        items = [w for w in items if tag in (w.tags or [])]
+
+    items.sort(key=lambda w: w.created_at, reverse=True)
+    all_tags = sorted({t for w in words.values() for t in (w.tags or [])})
+
+    def card(w: Word) -> str:
+        tags_html = "".join([f'<span class="pill">{t}</span>' for t in (w.tags or [])])
+        due = "✅" if parse_iso(w.next_review) <= datetime.now() else "⏳"
+        return f"""
+        <div class="card">
+          <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start">
+            <div>
+              <h3 style="margin:0 0 6px 0">{w.en} <span class="muted">→</span> {w.pl}</h3>
+              <div>{tags_html}</div>
+              <div class="muted" style="margin-top:6px">{("Przykład: " + w.example) if w.example else ""}</div>
+              <div class="muted" style="margin-top:6px">Powtórka: {w.next_review or "-"} {due} • poprawne: {w.correct} • błędne: {w.wrong}</div>
+              {f'<div class="muted" style="margin-top:8px">{w.notes}</div>' if w.notes else ''}
+            </div>
+            <div class="actions">
+              <a class="btn btn-ghost" href="{url_for('edit_word', wid=w.id)}">Edytuj</a>
+              <form method="post" action="{url_for('delete_word', wid=w.id)}" onsubmit="return confirm('Usunąć to słówko?');">
+                <button class="btn danger" type="submit">Usuń</button>
+              </form>
+            </div>
+          </div>
+        </div>
+        """
+
+    cards = "".join([card(w) for w in items]) if items else '<div class="card muted">Brak wyników.</div>'
+    tags_links = " ".join([f'<a class="pill" href="{url_for("words_page", tag=t)}">{t}</a>' for t in all_tags]) or "<span class='muted'>Brak tagów.</span>"
+
+    body = f"""
+    <div class="grid">
+      <div class="card">
+        <h2>Słownik</h2>
+        <form method="get" action="{url_for('words_page')}">
+          <div class="row">
+            <div><input name="q" value="{q}" placeholder="Szukaj (en/pl/przykład)"></div>
+            <div>
+              <select name="tag">
+                <option value="">(filtr tag)</option>
+                {''.join([f'<option value="{t}" {"selected" if t==tag else ""}>{t}</option>' for t in all_tags])}
+              </select>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:10px">
+            <button class="btn" type="submit">Szukaj</button>
+            <a class="btn btn-ghost" href="{url_for('words_page')}">Reset</a>
+          </div>
+        </form>
+        <div class="hr"></div>
+        <div class="muted">Tagi: {tags_links}</div>
+      </div>
+
+      <div class="card">
+        <h2>Szybkie akcje</h2>
+        <div class="actions">
+          <a class="btn" href="{url_for('lessons_list')}">Lekcje</a>
+          <a class="btn btn-ghost" href="{url_for('materials_list')}">Materiały</a>
+          <a class="btn btn-ghost" href="{url_for('quiz_page')}">Quiz</a>
+          <a class="btn btn-ghost" href="{url_for('review_page')}">Powtórki</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="hr"></div>
+    <div class="list">{cards}</div>
+    """
+    return render(body)
+
+
+@app.route("/words/<wid>/edit", methods=["GET", "POST"])
+def edit_word(wid: str):
+    words = load_words()
+    if wid not in words:
+        flash("Nie znaleziono słówka.", "err")
+        return redirect(url_for("words_page"))
+
+    w = words[wid]
+    if request.method == "POST":
+        w.en = (request.form.get("en", "") or "").strip()
+        w.pl = (request.form.get("pl", "") or "").strip()
+        w.example = (request.form.get("example", "") or "").strip()
+        w.notes = (request.form.get("notes", "") or "").strip()
+        tags_raw = (request.form.get("tags", "") or "").strip()
+        w.tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
+
+        save_words(words)
+        flash("Zapisano zmiany ✅", "ok")
+        return redirect(url_for("words_page"))
+
+    body = f"""
+    <div class="card">
+      <h2>Edytuj słówko: {w.id}</h2>
+      <form method="post">
+        <div class="row">
+          <div>
+            <label>Angielski</label>
+            <input name="en" value="{w.en}" required>
+          </div>
+          <div>
+            <label>Polski</label>
+            <input name="pl" value="{w.pl}" required>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <div>
+            <label>Tagi (po przecinku)</label>
+            <input name="tags" value="{', '.join(w.tags or [])}">
+          </div>
+          <div>
+            <label>Przykład</label>
+            <input name="example" value="{w.example}">
+          </div>
+        </div>
+
+        <div style="margin-top:10px">
+          <label>Notatki</label>
+          <textarea name="notes">{w.notes}</textarea>
+        </div>
+
+        <div class="actions" style="margin-top:12px">
+          <button class="btn" type="submit">Zapisz</button>
+          <a class="btn btn-ghost" href="{url_for('words_page')}">Powrót</a>
+        </div>
+      </form>
+    </div>
+    """
+    return render(body)
+
+
+@app.route("/words/<wid>/delete", methods=["POST"])
+def delete_word(wid: str):
+    words = load_words()
+    if wid in words:
+        del words[wid]
+        save_words(words)
+        flash("Usunięto słówko.", "ok")
+    return redirect(url_for("words_page"))
+
+
+# ----------------------------
+# LEKCJE
+# ----------------------------
+
+@app.route("/lessons")
+def lessons_list():
+    words = load_words()
+    prog = load_lesson_progress()
+
+    cards = ""
+    for lesson in LESSONS:
+        missing = lesson_missing_phrases(words, lesson)
+        done = str(lesson["id"]) in prog.get("completed", {})
+        score = prog.get("scores", {}).get(str(lesson["id"]), None)
+
+        status = "✅ Zaliczone" if done else ("⚠️ Brakuje zwrotów" if missing else "▶️ Gotowa do startu")
+        extra = f"<div class='muted'>Ostatni wynik: <b>{score}%</b></div>" if score is not None else ""
+        need = f"<div class='muted'>Braki: <b>{len(missing)}</b> (dodaj do słownika)</div>" if missing else ""
+
+        cards += f"""
+        <div class="card">
+          <h3 style="margin:0 0 6px 0">{lesson['title']} <span class="pill">{lesson['level']}</span></h3>
+          <div class="muted">{lesson['goal']}</div>
+          <div class="hr"></div>
+          <div><b>Status:</b> {status}</div>
+          {extra}
+          {need}
+          <div class="actions" style="margin-top:10px">
+            <a class="btn" href="{url_for('lesson_view', lesson_id=lesson['id'])}">Otwórz lekcję</a>
+            <a class="btn btn-ghost" href="{url_for('words_page')}">Słownik</a>
+          </div>
+        </div>
+        """
+
+    body = f"""
+    <div class="card">
+      <h2>Lekcje</h2>
+      <p class="muted">
+        Lekcje = mini słownik + dialog + ćwiczenia + zaliczenie.
+        <br><b>Ty</b> dodajesz zwroty do słownika, a lekcja wykrywa braki.
+      </p>
+    </div>
+    <div class="hr"></div>
+    <div class="list">{cards}</div>
+    """
+    return render(body)
+
+
+@app.route("/lesson/<int:lesson_id>", methods=["GET", "POST"])
+def lesson_view(lesson_id: int):
+    lesson = next((l for l in LESSONS if l["id"] == lesson_id), None)
+    if not lesson:
+        flash("Nie ma takiej lekcji.", "err")
+        return redirect(url_for("lessons_list"))
+
+    words = load_words()
+    prog = load_lesson_progress()
+    missing = lesson_missing_phrases(words, lesson)
+
+    if missing:
+        missing_html = "".join([f"<li><b>{m['en']}</b> — {m['pl']}</li>" for m in missing])
+        body = f"""
+        <div class="card">
+          <h2>{lesson['title']}</h2>
+          <p class="muted">{lesson['goal']}</p>
+          <div class="hr"></div>
+          <h3>Najpierw dodaj do słownika te zwroty:</h3>
+          <ul>{missing_html}</ul>
+          <div class="actions">
+            <a class="btn" href="{url_for('words_page')}">Przejdź do słownika</a>
+            <a class="btn btn-ghost" href="{url_for('lessons_list')}">Wróć do lekcji</a>
+          </div>
+        </div>
+        """
+        return render(body)
+
+    if request.method == "POST":
+        total = 0
+        good = 0
+
+        match_items = lesson["exercises"][0]["items"]
+        for idx, item in enumerate(match_items):
+            total += 1
+            user = norm(request.form.get(f"m_{idx}", ""))
+            if user == norm(item["pl"]):
+                good += 1
+
+        fill_items = lesson["exercises"][1]["items"]
+        for idx, item in enumerate(fill_items):
+            total += 1
+            user = norm(request.form.get(f"f_{idx}", ""))
+            if user == norm(item["answer"]):
+                good += 1
+
+        quiz_items = lesson["exercises"][2]["items"]
+        for idx, item in enumerate(quiz_items):
+            total += 1
+            user = norm(request.form.get(f"q_{idx}", ""))
+            if user == norm(item["a"]):
+                good += 1
+
+        score = int(round((good / max(total, 1)) * 100))
+        prog.setdefault("scores", {})[str(lesson_id)] = score
+
+        if score >= 70:
+            prog.setdefault("completed", {})[str(lesson_id)] = True
+            flash(f"Zaliczone ✅ Wynik: {score}% (próg 70%)", "ok")
+        else:
+            flash(f"Jeszcze nie ✅ Wynik: {score}% (spróbuj ponownie, próg 70%)", "err")
+
+        save_lesson_progress(prog)
+        return redirect(url_for("lesson_view", lesson_id=lesson_id))
+
+    score = prog.get("scores", {}).get(str(lesson_id))
+    done = str(lesson_id) in prog.get("completed", {})
+
+    phrases_html = "".join([f"<div class='card'><b>{rp['en']}</b> → {rp['pl']}</div>" for rp in lesson["required_phrases"]])
+
+    dialog_html = ""
+    for line in lesson["dialog"]:
+        dialog_html += f"""
+        <div class="card">
+          <b>{line['spk']}:</b> {line['en']}<br>
+          <span class="muted">{line['pl']}</span>
+        </div>
+        """
+
+    match_items = lesson["exercises"][0]["items"]
+    match_html = ""
+    for idx, it in enumerate(match_items):
+        match_html += f"""
+        <div class="card">
+          <b>{it['en']}</b>
+          <div style="margin-top:8px">
+            <input name="m_{idx}" placeholder="Wpisz po polsku (dokładnie sens)">
+          </div>
+          <div class="muted" style="margin-top:6px">Wskazówka: {it['pl']}</div>
+        </div>
+        """
+
+    fill_items = lesson["exercises"][1]["items"]
+    fill_html = ""
+    for idx, it in enumerate(fill_items):
+        fill_html += f"""
+        <div class="card">
+          <div class="big" style="font-size:20px">{it['sentence']}</div>
+          <div style="margin-top:8px">
+            <input name="f_{idx}" placeholder="Wpisz brakujące słowo">
+          </div>
+          <div class="muted" style="margin-top:6px">Podpowiedź: {it['hint']}</div>
+        </div>
+        """
+
+    quiz_items = lesson["exercises"][2]["items"]
+    quiz_html = ""
+    for idx, it in enumerate(quiz_items):
+        quiz_html += f"""
+        <div class="card">
+          <div class="big" style="font-size:18px">{it['q']}</div>
+          <div style="margin-top:8px">
+            <input name="q_{idx}" placeholder="Odpowiedź">
+          </div>
+          <div class="muted" style="margin-top:6px">Wskazówka: {it['a']}</div>
+        </div>
+        """
+
+    body = f"""
+    <div class="grid">
+      <div class="card">
+        <h2>{lesson['title']}</h2>
+        <p class="muted">{lesson['goal']}</p>
+        <div class="hr"></div>
+        <div><b>Status:</b> {"✅ Zaliczone" if done else "▶️ Do zrobienia"}</div>
+        <div class="muted">Ostatni wynik: <b>{(str(score)+"%") if score is not None else "-"}</b></div>
+
+        <div class="hr"></div>
+
+        <h3>1) Mini słownik lekcji</h3>
+        <div class="list">{phrases_html}</div>
+
+        <div class="hr"></div>
+
+        <h3>2) Dialog / tekst</h3>
+        <div class="list">{dialog_html}</div>
+      </div>
+
+      <div class="card">
+        <h2>3) Ćwiczenia (zaliczenie)</h2>
+        <p class="muted">Zaliczysz lekcję, jeśli zdobędziesz minimum <b>70%</b>.</p>
+
+        <form method="post">
+          <div class="hr"></div>
+          <h3>{lesson["exercises"][0]["title"]}</h3>
+          <div class="list">{match_html}</div>
+
+          <div class="hr"></div>
+          <h3>{lesson["exercises"][1]["title"]}</h3>
+          <div class="list">{fill_html}</div>
+
+          <div class="hr"></div>
+          <h3>{lesson["exercises"][2]["title"]}</h3>
+          <div class="list">{quiz_html}</div>
+
+          <div class="actions" style="margin-top:12px">
+            <button class="btn" type="submit">Sprawdź i zakończ lekcję</button>
+            <a class="btn btn-ghost" href="{url_for('lessons_list')}">Wróć</a>
+          </div>
+        </form>
+      </div>
+    </div>
+    """
+    return render(body)
+
+
+# ----------------------------
+# QUIZ
+# ----------------------------
+
+@app.route("/quiz", methods=["GET", "POST"])
+def quiz_page():
+    words = load_words()
+    if not words:
+        flash("Dodaj najpierw słówka.", "err")
+        return redirect(url_for("home"))
+
+    tag = (request.args.get("tag", "") or "").strip()
+    direction = (request.args.get("dir", "en_pl") or "en_pl").strip()
+
+    pool = list(words.values())
+    if tag:
+        pool = [w for w in pool if tag in (w.tags or [])]
+    if not pool:
+        flash("Brak słówek dla wybranego filtra.", "err")
+        return redirect(url_for("quiz_page"))
+
+    if request.method == "POST":
+        wid = request.form.get("wid", "")
+        answer = (request.form.get("answer", "") or "").strip()
+        direction = request.form.get("dir", "en_pl") or "en_pl"
+        tag = request.form.get("tag", "") or ""
+
+        w = words.get(wid)
+        if not w:
+            flash("Błąd quizu: brak słówka.", "err")
+            return redirect(url_for("quiz_page"))
+
+        correct_value = w.pl if direction == "en_pl" else w.en
+
+        if norm(answer) == norm(correct_value):
+            w.correct += 1
+            flash("Dobrze ✅", "ok")
+            schedule_next(w, 4)
+        else:
+            w.wrong += 1
+            flash(f"Źle ❌ Poprawna: {correct_value}", "err")
+            schedule_next(w, 1)
+
+        save_words(words)
+        return redirect(url_for("quiz_page", tag=tag, dir=direction))
+
+    w = random.choice(pool)
+    prompt = w.en if direction == "en_pl" else w.pl
+    placeholder = "Wpisz tłumaczenie po polsku" if direction == "en_pl" else "Wpisz po angielsku"
+    all_tags = sorted({t for ww in words.values() for t in (ww.tags or [])})
+
+    body = f"""
+    <div class="grid">
+      <div class="card">
+        <h2>Quiz</h2>
+        <form method="get" action="{url_for('quiz_page')}">
+          <div class="row">
+            <div>
+              <label>Kierunek</label>
+              <select name="dir">
+                <option value="en_pl" {"selected" if direction=="en_pl" else ""}>EN → PL</option>
+                <option value="pl_en" {"selected" if direction=="pl_en" else ""}>PL → EN</option>
+              </select>
+            </div>
+            <div>
+              <label>Tag (opcjonalnie)</label>
+              <select name="tag">
+                <option value="">(wszystkie)</option>
+                {''.join([f'<option value="{t}" {"selected" if t==tag else ""}>{t}</option>' for t in all_tags])}
+              </select>
+            </div>
+          </div>
+          <div class="actions" style="margin-top:10px">
+            <button class="btn" type="submit">Ustaw</button>
+            <a class="btn btn-ghost" href="{url_for('quiz_page')}">Reset</a>
+          </div>
+        </form>
+
+        <div class="hr"></div>
+
+        <h3>Pytanie</h3>
+        <div class="card" style="margin-top:10px">
+          <div class="big">{prompt}</div>
+          <div class="muted" style="margin-top:8px">{w.example or ""}</div>
+        </div>
+
+        <form method="post" style="margin-top:10px">
+          <input type="hidden" name="wid" value="{w.id}">
+          <input type="hidden" name="dir" value="{direction}">
+          <input type="hidden" name="tag" value="{tag}">
+          <label>Odpowiedź</label>
+          <input name="answer" placeholder="{placeholder}" autofocus required>
+          <div class="actions" style="margin-top:10px">
+            <button class="btn" type="submit">Sprawdź</button>
+            <a class="btn btn-ghost" href="{url_for('lessons_list')}">Lekcje</a>
+            <a class="btn btn-ghost" href="{url_for('materials_list')}">Materiały</a>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Tip</h2>
+        <p class="muted">Filtruj quiz po tagu (np. <code>airport</code>, <code>lesson1</code>, <code>restaurant</code>).</p>
+      </div>
+    </div>
+    """
+    return render(body)
+
+
+# ----------------------------
+# POWTÓRKI (SRS)
+# ----------------------------
+
+@app.route("/review", methods=["GET", "POST"])
+def review_page():
+    words = load_words()
+    tag = (request.args.get("tag", "") or "").strip()
+
+    due = due_words(words, tag=tag)
+    due.sort(key=lambda w: parse_iso(w.next_review))
+    all_tags = sorted({t for ww in words.values() for t in (ww.tags or [])})
+
+    if request.method == "POST":
+        wid = request.form.get("wid", "")
+        grade = int(request.form.get("grade", "0"))
+        tag = request.form.get("tag", "") or ""
+
+        w = words.get(wid)
+        if not w:
+            flash("Błąd: brak słówka.", "err")
+            return redirect(url_for("review_page", tag=tag))
+
+        if grade >= 3:
+            w.correct += 1
+        else:
+            w.wrong += 1
+
+        schedule_next(w, grade)
+        save_words(words)
+        return redirect(url_for("review_page", tag=tag))
+
+    if not due:
+        body = f"""
+        <div class="card">
+          <h2>Powtórki (SRS)</h2>
+          <p class="muted">Nie masz nic do powtórki{(" w tagu: " + tag) if tag else ""}. 🎉</p>
+          <div class="actions">
+            <a class="btn" href="{url_for('quiz_page', tag=tag)}">Zrób quiz</a>
+            <a class="btn btn-ghost" href="{url_for('words_page')}">Słownik</a>
+          </div>
+
+          <div class="hr"></div>
+
+          <form method="get" action="{url_for('review_page')}">
+            <label>Filtr tagu</label>
+            <select name="tag">
+              <option value="">(wszystkie)</option>
+              {''.join([f'<option value="{t}" {"selected" if t==tag else ""}>{t}</option>' for t in all_tags])}
+            </select>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn" type="submit">Ustaw</button>
+              <a class="btn btn-ghost" href="{url_for('review_page')}">Reset</a>
+            </div>
+          </form>
+        </div>
+        """
+        return render(body)
+
+    w = due[0]
+    tags_html = "".join([f'<span class="pill">{t}</span>' for t in (w.tags or [])])
+
+    body = f"""
+    <div class="grid">
+      <div class="card">
+        <h2>Powtórki (SRS)</h2>
+
+        <form method="get" action="{url_for('review_page')}">
+          <label>Filtr tagu</label>
+          <select name="tag">
+            <option value="">(wszystkie)</option>
+            {''.join([f'<option value="{t}" {"selected" if t==tag else ""}>{t}</option>' for t in all_tags])}
+          </select>
+          <div class="actions" style="margin-top:10px">
+            <button class="btn" type="submit">Ustaw</button>
+            <a class="btn btn-ghost" href="{url_for('review_page')}">Reset</a>
+          </div>
+        </form>
+
+        <div class="hr"></div>
+
+        <div class="card">
+          <div>{tags_html}</div>
+          <div class="big" style="margin-top:8px">{w.en}</div>
+          <div class="muted" style="margin-top:6px">PL: <b>{w.pl}</b></div>
+          <div class="muted" style="margin-top:6px">{w.example or ""}</div>
+          {f'<div class="muted" style="margin-top:6px">{w.notes}</div>' if w.notes else ''}
+
+          <div class="hr"></div>
+          <div class="muted">Oceń, jak dobrze pamiętasz (0–5). To ustawi następną powtórkę.</div>
+
+          <form method="post" style="margin-top:10px">
+            <input type="hidden" name="wid" value="{w.id}">
+            <input type="hidden" name="tag" value="{tag}">
+            <div class="actions">
+              {''.join([f'<button class="btn btn-ghost" name="grade" value="{g}" type="submit">{g}</button>' for g in range(0,6)])}
+            </div>
+          </form>
+        </div>
+
+        <p class="muted" style="margin-top:10px">Do powtórki teraz: <b>{len(due)}</b></p>
+      </div>
+
+      <div class="card">
+        <h2>Wskazówka</h2>
+        <p class="muted">Uczysz się pod temat? Filtruj tag (np. <code>airport</code> lub <code>restaurant</code>).</p>
+      </div>
+    </div>
+    """
+    return render(body)
+
+
+# ----------------------------
+# STATYSTYKI
+# ----------------------------
+
+@app.route("/stats")
+def stats_page():
+    words = load_words()
+    total = len(words)
+    correct = sum(w.correct for w in words.values())
+    wrong = sum(w.wrong for w in words.values())
+    due = len(due_words(words))
+    learned = sum(1 for w in words.values() if w.reps >= 3)
+
+    hardest = sorted(words.values(), key=lambda w: (w.wrong - w.correct), reverse=True)[:8]
+    hardest_html = ""
+    for w in hardest:
+        score = w.wrong - w.correct
+        hardest_html += f"""
+        <div class="card">
+          <b>{w.en}</b> → {w.pl}<br>
+          <span class="muted">poprawne: {w.correct} • błędne: {w.wrong} • bilans: {score}</span>
+        </div>
+        """
+
+    body = f"""
+    <div class="grid">
+      <div class="card">
+        <h2>Statystyki</h2>
+        <p class="muted">Słówka: <b>{total}</b></p>
+        <p class="muted">Poprawne / błędne: <b>{correct}</b> / <b>{wrong}</b></p>
+        <p class="muted">Do powtórki dziś: <b>{due}</b></p>
+        <p class="muted">Utrwalone (reps ≥ 3): <b>{learned}</b></p>
+      </div>
+
+      <div class="card">
+        <h2>Najtrudniejsze</h2>
+        <div class="list">
+          {hardest_html or '<div class="muted">Brak danych.</div>'}
+        </div>
+      </div>
+    </div>
+    """
+    return render(body)
+
+
+# ----------------------------
+# IMPORT / EKSPORT
+# ----------------------------
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings_page():
+    words = load_words()
+
+    if request.method == "POST":
+        action = request.form.get("action", "")
+
+        if action == "export":
+            fname = f"words_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            with open(fname, "w", encoding="utf-8") as f:
+                json.dump({"words": [w.to_dict() for w in words.values()]}, f, ensure_ascii=False, indent=2)
+            flash(f"Wyeksportowano do pliku: {fname}", "ok")
+            return redirect(url_for("settings_page"))
+
+        if action == "import":
+            raw = (request.form.get("json_data", "") or "").strip()
+            try:
+                payload = json.loads(raw)
+                incoming = payload.get("words", [])
+                if not isinstance(incoming, list):
+                    raise ValueError("Pole 'words' musi być listą.")
+
+                for item in incoming:
+                    w = Word.from_dict(item)
+                    if not w.id:
+                        w.id = f"w{(len(words) + 1):04d}"
+                    if not w.created_at:
+                        w.created_at = now_iso()
+                    if not w.next_review:
+                        w.next_review = now_iso()
+                    words[w.id] = w
+
+                save_words(words)
+                flash(f"Zaimportowano {len(incoming)} rekordów ✅", "ok")
+            except Exception as e:
+                flash(f"Błąd importu: {e}", "err")
+
+            return redirect(url_for("settings_page"))
+
+        if action == "reset_all":
+            words = seed_words()
+            save_words(words)
+            save_lesson_progress({"completed": {}, "scores": {}})
+            flash("Zresetowano bazę i progres lekcji.", "ok")
+            return redirect(url_for("settings_page"))
+
+    preview = json.dumps({"words": [w.to_dict() for w in words.values()]}, ensure_ascii=False, indent=2)
+
+    body = f"""
+    <div class="grid">
+      <div class="card">
+        <h2>Eksport</h2>
+        <form method="post">
+          <input type="hidden" name="action" value="export">
+          <button class="btn" type="submit">Zapisz backup JSON do pliku</button>
+        </form>
+
+        <div class="hr"></div>
+
+        <h2>Import</h2>
+        <form method="post">
+          <input type="hidden" name="action" value="import">
+          <label>Wklej JSON</label>
+          <textarea name="json_data" placeholder='{"words":[{"id":"w0001","en":"...","pl":"..."}]}'></textarea>
+          <div class="actions" style="margin-top:10px">
+            <button class="btn" type="submit">Importuj</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="card">
+        <h2>Podgląd danych</h2>
+        <textarea readonly>{preview}</textarea>
+
+        <div class="hr"></div>
+
+        <h2>Reset</h2>
+        <form method="post" onsubmit="return confirm('Na pewno zresetować bazę?');">
+          <input type="hidden" name="action" value="reset_all">
+          <button class="btn danger" type="submit">Resetuj bazę + progres lekcji</button>
+        </form>
+      </div>
+    </div>
+    """
+    return render(body)
+
+
+# ============================
+# START
+# ============================
+
+if __name__ == "__main__":
+    app.run(host="127.0.0.1", port=5000, debug=True)
