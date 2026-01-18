@@ -457,14 +457,104 @@ LESSONS = [
         "goal": "Umiesz zapytać, gdzie kupić bilet, ile kosztuje i czy są zniżki / przewodnik audio.",
         "required_phrases": [
             {"en": "Where can I buy a ticket?", "pl": "Gdzie mogę kupić bilet?"},
-            {"en": "How much is the ticket?", "pl": "Ile kosztuje bilet?"},
+
             {"en": "Is the audio guide included?", "pl": "Czy przewodnik audio jest wliczony?"},
             {"en": "Is there a discount for students?", "pl": "Czy jest zniżka dla studentów?"},
             {"en": "Is there a discount for seniors?", "pl": "Czy jest zniżka dla seniorów?"},
             {"en": "Can I buy a ticket online?", "pl": "Czy mogę kupić bilet online?"},
         ],
     },
-    # Jeżeli masz kolejne lekcje, dopisz je tutaj w tym samym formacie.
+
+    # ✅ NOWA LEKCJA 6 (poprawnie wstawiona)
+    {
+        "id": 6,
+        "title": "Lekcja 6: Kupowanie biletów – kino i koncert",
+        "level": "A1/A2",
+        "goal": "Umiesz kupić bilety (kino/koncert): liczba biletów, godzina, miejsca, dostępność i cena.",
+        "required_phrases": [
+            {"en": "How can I help you?", "pl": "Jak mogę pomóc?"},
+            {"en": "I'd like two tickets for the film on screen 3, please.", "pl": "Poproszę dwa bilety na film na sali 3."},
+            {"en": "Which time would you like?", "pl": "O której godzinie chciałby Pan/chciałaby Pani?"},
+            {"en": "Six-thirty (6:30), please.", "pl": "Na szóstą trzydzieści (6:30), proszę."},
+            {"en": "I'm sorry, the 6:30 film is sold out.", "pl": "Przepraszam, film o 6:30 jest wyprzedany."},
+            {"en": "But there are some tickets available for the nine-thirty film.", "pl": "Ale są dostępne bilety na film o 9:30."},
+            {"en": "That's OK.", "pl": "W porządku. / Zgadzam się."},
+            {"en": "I'd like four tickets for a concert, please.", "pl": "Poproszę cztery bilety na koncert."},
+            {"en": "Where do you want to sit?", "pl": "Gdzie chcecie usiąść?"},
+            {"en": "Near the front, please.", "pl": "Z przodu, proszę."},
+            {"en": "Let me see.", "pl": "Już sprawdzam."},
+            {"en": "Do you want to sit together?", "pl": "Chcecie usiąść razem?"},
+            {"en": "I'm sorry, there aren't any more seats together.", "pl": "Przepraszam, nie ma już miejsc obok siebie."},
+            {"en": "How much is a ticket?", "pl": "Ile kosztuje bilet?"},
+            {"en": "It's thirty pounds for a ticket.", "pl": "Bilet kosztuje trzydzieści funtów."},
+            {"en": "So four tickets – that's one hundred and twenty pounds.", "pl": "Więc cztery bilety – to sto dwadzieścia funtów."},
+        ],
+    },
+{
+    "id": 7,
+    "title": "Lekcja 7: Pogoda – opisywanie warunków atmosferycznych",
+    "level": "A1/A2",
+    "goal": "Umiesz opisać pogodę: zachmurzenie, temperaturę, wiatr, deszcz, burzę, mgłę i śnieg.",
+    "required_phrases": [
+        {"en": "sunny", "pl": "słonecznie"},
+        {"en": "cloudy", "pl": "pochmurno"},
+        {"en": "overcast", "pl": "całkowicie pochmurno"},
+        {"en": "rainy", "pl": "deszczowo"},
+        {"en": "snowy", "pl": "śnieżnie"},
+        {"en": "windy", "pl": "wietrznie"},
+        {"en": "stormy", "pl": "burzowo"},
+
+        {"en": "hot", "pl": "gorąco"},
+        {"en": "warm", "pl": "ciepło"},
+        {"en": "cool", "pl": "chłodno"},
+        {"en": "freezing", "pl": "mroźno"},
+
+        {"en": "It's cold outside.", "pl": "Na zewnątrz jest zimno."},
+        {"en": "It's very hot today.", "pl": "Dziś jest bardzo gorąco."},
+
+        {"en": "strong wind", "pl": "silny wiatr"},
+        {"en": "gentle wind", "pl": "lekki wiatr"},
+        {"en": "breeze", "pl": "bryza"},
+        {"en": "The wind is blowing.", "pl": "Wieje wiatr."},
+        {"en": "It's windy today.", "pl": "Dziś jest wietrznie."},
+
+        {"en": "It's raining.", "pl": "Pada deszcz."},
+        {"en": "It's pouring.", "pl": "Leje deszcz."},
+        {"en": "light rain", "pl": "lekki deszcz"},
+        {"en": "heavy rain", "pl": "ulewa"},
+
+        {"en": "thunder", "pl": "grzmot"},
+        {"en": "lightning", "pl": "piorun"},
+        {"en": "There is a storm.", "pl": "Jest burza."},
+
+        {"en": "fog", "pl": "mgła"},
+        {"en": "mist", "pl": "lekka mgła"},
+        {"en": "It's foggy.", "pl": "Jest mgliście."},
+        {"en": "I can’t see clearly.", "pl": "Nie widzę wyraźnie."},
+        {"en": "Visibility is poor.", "pl": "Widoczność jest słaba."},
+
+        {"en": "snow", "pl": "śnieg"},
+        {"en": "It's snowing.", "pl": "Pada śnieg."},
+        {"en": "frost", "pl": "mróz"},
+        {"en": "icy", "pl": "oblodzony"},
+        {"en": "The road is icy.", "pl": "Droga jest oblodzona."},
+    ],
+},
+{
+    "id": 71,
+    "title": "Lekcja 7.1: Pogoda – opinie i prognozy",
+    "level": "A1/A2",
+    "goal": "Umiesz wyrazić opinię o pogodzie oraz powiedzieć, jaka będzie lub jak wygląda sytuacja pogodowa.",
+    "required_phrases": [
+        {"en": "It looks like rain.", "pl": "Wygląda na deszcz."},
+        {"en": "The weather is nice today.", "pl": "Dziś jest ładna pogoda."},
+        {"en": "The weather is awful.", "pl": "Pogoda jest okropna."},
+        {"en": "I like this weather.", "pl": "Lubię taką pogodę."},
+        {"en": "I don’t like cold weather.", "pl": "Nie lubię zimnej pogody."},
+    ],
+},
+
+
 ]
 
 
