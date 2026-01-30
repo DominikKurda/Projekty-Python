@@ -1,0 +1,703 @@
+from flask import Flask, request, redirect, url_for, render_template_string
+from datetime import date, datetime, timedelta, time as dtime
+import calendar
+import json
+import os
+import uuid
+import smtplib
+from email.message import EmailMessage
+
+from apscheduler.schedulers.background import BackgroundScheduler
+
+app = Flask(__name__)
+
+DATA_FILE = "events.json"
+
+# =========================
+# 🎨 KOLORY MIESIĘCY (akcent UI)
+# =========================
+MONTH_COLORS = {
+    1: "#2563eb",   # Styczeń - niebieski
+    2: "#7c3aed",   # Luty - fiolet
+    3: "#16a34a",   # Marzec - zielony
+    4: "#ec4899",   # Kwiecień - róż
+    5: "#eab308",   # Maj - żółty
+    6: "#f97316",   # Czerwiec - pomarańcz
+    7: "#dc2626",   # Lipiec - czerwony
+    8: "#92400e",   # Sierpień - brąz
+    9: "#1e40af",   # Wrzesień - granat
+    10: "#ea580c",  # Październik - dynia
+    11: "#6d28d9",  # Listopad - śliwka
+    12: "#06b6d4",  # Grudzień - turkus
+}
+
+# ----------------------------
+# POWIADOMIENIA E-MAIL (DZIEŃ WCZEŚNIEJ)
+# ----------------------------
+NOTIFY_TO = ["dominikkurda9@gmail.com", "dominikkurda6@gmail.com"]
+
+# Jeżeli wydarzenie nie ma godziny -> uznajemy je za 09:00
+# i mail poleci dzień wcześniej o 09:00.
+DEFAULT_EVENT_TIME_IF_EMPTY = dtime(9, 0)
+
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = 587
+EMAIL_USER = os.getenv("CAL_EMAIL_USER", "").strip()
+EMAIL_PASS = os.getenv("CAL_EMAIL_PASS", "").strip()
+
+scheduler = BackgroundScheduler(daemon=True)
+
+# ----------------------------
+# STORAGE
+# ----------------------------
+def load_events():
+    if not os.path.exists(DATA_FILE):
+        return []
+    try:
+        with open(DATA_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except Exception:
+        return []
+
+def save_events(events):
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump(events, f, ensure_ascii=False, indent=2)
+
+def events_for_day(events, yyyy_mm_dd: str):
+    # NIEOGRANICZONE: zwracamy WSZYSTKIE wydarzenia danego dnia
+    return [e for e in events if e.get("date") == yyyy_mm_dd]
+
+def sort_events_in_day(day_events):
+    # Najpierw z godziną rosnąco, potem bez godziny
+    def key(e):
+        t = (e.get("time") or "").strip()
+        return (t == "", t)
+    return sorted(day_events, key=key)
+
+# ----------------------------
+# EMAIL
+# ----------------------------
+def can_send_email() -> bool:
+    return bool(EMAIL_USER and EMAIL_PASS)
+
+def send_email(subject: str, body: str, to_list: list[str]):
+    if not can_send_email():
+        return False, "Brak CAL_EMAIL_USER / CAL_EMAIL_PASS."
+
+    msg = EmailMessage()
+    msg["From"] = EMAIL_USER
+    msg["To"] = ", ".join(to_list)
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    try:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=20) as server:
+            server.ehlo()
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASS)
+            server.send_message(msg)
+        return True, "OK"
+    except Exception as e:
+        return False, str(e)
+
+def parse_date(dt_str: str) -> date | None:
+    try:
+        return datetime.strptime(dt_str, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def parse_time(tm_str: str) -> dtime | None:
+    try:
+        return datetime.strptime(tm_str, "%H:%M").time()
+    except Exception:
+        return None
+
+def event_datetime_for_scheduling(e) -> datetime | None:
+    """
+    Jeśli event ma godzinę -> użyj jej.
+    Jeśli nie ma godziny -> użyj DEFAULT_EVENT_TIME_IF_EMPTY.
+    """
+    dt = parse_date((e.get("date") or "").strip())
+    if not dt:
+        return None
+
+    tm_raw = (e.get("time") or "").strip()
+    tm = parse_time(tm_raw) if tm_raw else None
+    if tm is None:
+        tm = DEFAULT_EVENT_TIME_IF_EMPTY
+
+    return datetime.combine(dt, tm)
+
+def schedule_email_day_before(e):
+    """
+    Mail dzień przed wydarzeniem:
+    run_at = event_dt - 1 dzień
+    """
+    ev_dt = event_datetime_for_scheduling(e)
+    if not ev_dt:
+        return
+
+    run_at = ev_dt - timedelta(days=1)
+    if run_at <= datetime.now():
+        return
+
+    job_id = f"email_{e['id']}"
+
+    # usuń stary job (jeśli istnieje)
+    try:
+        scheduler.remove_job(job_id)
+    except Exception:
+        pass
+
+    def job():
+        subject = f"Przypomnienie (dzień wcześniej): {e.get('title', 'Wydarzenie')}"
+        body = (
+            "To jest automatyczne przypomnienie z kalendarza (1 dzień przed).\n\n"
+            f"Tytuł: {e.get('title','')}\n"
+            f"Data: {e.get('date','')}\n"
+            f"Godzina: {e.get('time','(brak)')}\n"
+            f"Opis: {e.get('description','')}\n"
+        )
+        send_email(subject, body, NOTIFY_TO)
+
+    scheduler.add_job(job, "date", run_date=run_at, id=job_id, replace_existing=True)
+
+def reschedule_all_events():
+    # po restarcie aplikacji odtwarzamy przypomnienia dla przyszłych eventów
+    events = load_events()
+    for e in events:
+        schedule_email_day_before(e)
+
+# ----------------------------
+# MULTI-ADD (hurtowe dodawanie)
+# Format linii:
+#  - "HH:MM | Tytuł | opis"
+#  - albo "Tytuł | opis" (bez godziny)
+#  - albo samo "Tytuł"
+# Separator: | (pipe)
+# ----------------------------
+def parse_bulk_lines(bulk_text: str, target_date_iso: str):
+    out = []
+    lines = (bulk_text or "").splitlines()
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+
+        parts = [p.strip() for p in line.split("|")]
+
+        ev_time = ""
+        title = ""
+        desc = ""
+
+        if len(parts) >= 3:
+            ev_time, title, desc = parts[0], parts[1], " | ".join(parts[2:])
+        elif len(parts) == 2:
+            maybe_time = parts[0]
+            if parse_time(maybe_time) is not None:
+                ev_time = maybe_time
+                title = parts[1]
+                desc = ""
+            else:
+                title = parts[0]
+                desc = parts[1]
+        else:
+            title = parts[0]
+            desc = ""
+
+        if not title:
+            continue
+
+        if ev_time and parse_time(ev_time) is None:
+            ev_time = ""
+
+        e = {
+            "id": uuid.uuid4().hex,
+            "title": title,
+            "date": target_date_iso,
+            "time": ev_time,
+            "description": desc
+        }
+        out.append(e)
+
+    return out
+
+# ----------------------------
+# UI (HTML+CSS) w jednym pliku
+# ----------------------------
+TEMPLATE = """
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kalendarz</title>
+  <style>
+    :root{
+      --bg:#0b1220;
+      --muted:#93a4c7;
+      --text:#eaf0ff;
+      --shadow: 0 12px 40px rgba(0,0,0,.35);
+      --radius: 18px;
+
+      /* 🎨 akcent miesiąca */
+      --accent: {{ accent }};
+      --accentSoft: rgba(255,255,255,.08);
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      background:
+        radial-gradient(900px 500px at 20% 10%, color-mix(in srgb, var(--accent) 32%, transparent), transparent 60%),
+        radial-gradient(900px 500px at 80% 30%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 60%),
+        var(--bg);
+      color:var(--text);
+    }
+    .wrap{max-width:1150px; margin: 26px auto; padding: 0 14px;}
+    .top{display:flex; gap:12px; align-items:center; justify-content:space-between; margin-bottom: 16px;}
+    .title{font-size: 22px; font-weight: 800; display:flex; gap:10px; align-items:center;}
+    .pill{
+      padding:6px 10px; border-radius:999px;
+      background: color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,.06));
+      border: 1px solid color-mix(in srgb, var(--accent) 30%, rgba(255,255,255,.10));
+      color:var(--muted);
+      font-size:12px;
+    }
+    .btn{
+      border:0; cursor:pointer; padding:10px 14px; border-radius: 14px;
+      background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 92%, #000 8%), color-mix(in srgb, var(--accent) 60%, #22c55e 40%));
+      color:white; font-weight:700;
+      box-shadow: var(--shadow);
+      transition: transform .08s ease, filter .12s ease;
+      text-decoration:none; display:inline-flex; align-items:center; gap:8px; white-space:nowrap;
+    }
+    .btn:hover{filter: brightness(1.05)}
+    .btn:active{transform: translateY(1px)}
+    .btn.secondary{
+      background: rgba(255,255,255,.10); box-shadow:none; color: var(--text);
+      border:1px solid rgba(255,255,255,.12);
+    }
+    .btn.danger{
+      background: rgba(239,68,68,.16);
+      border:1px solid rgba(239,68,68,.35);
+      box-shadow:none;
+    }
+    .grid{display:grid; grid-template-columns: 1.35fr .65fr; gap: 14px; align-items:start;}
+    .card{
+      background: rgba(255,255,255,.06);
+      border: 1px solid rgba(255,255,255,.10);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow:hidden;
+    }
+    .card h3{margin:0; padding:14px 14px 0 14px; font-size:14px; color: var(--muted); font-weight:700}
+    .monthbar{
+      display:flex; gap:10px; align-items:center; justify-content:space-between;
+      padding: 12px; border-bottom: 1px solid rgba(255,255,255,.08);
+      background: rgba(0,0,0,.12);
+    }
+    .monthname{
+      font-size:18px; font-weight:900;
+      color: color-mix(in srgb, var(--accent) 85%, white 15%);
+    }
+    .small{font-size:12px; color: var(--muted)}
+    .weekdays{
+      display:grid; grid-template-columns: repeat(7, 1fr);
+      gap:8px; padding: 12px 12px 0 12px; color: var(--muted);
+      font-size:12px; font-weight:700;
+    }
+    .days{display:grid; grid-template-columns: repeat(7, 1fr); gap:8px; padding: 12px;}
+    .day{
+      min-height: 88px;
+      border-radius: 16px;
+      background: rgba(0,0,0,.14);
+      border:1px solid rgba(255,255,255,.08);
+      padding: 10px;
+      position:relative;
+      transition: transform .08s ease, background .12s ease, border-color .12s ease;
+      text-decoration:none; color:inherit; display:block;
+    }
+    .day:hover{
+      background: rgba(255,255,255,.07);
+      border-color: color-mix(in srgb, var(--accent) 55%, rgba(255,255,255,.10));
+      transform: translateY(-1px);
+    }
+    .day.muted{opacity:.35}
+    .day .num{font-weight:900; font-size:14px}
+    .badge{
+      margin-top: 6px;
+      display:inline-flex;
+      padding: 4px 8px;
+      border-radius:999px;
+      font-size:12px;
+      background: color-mix(in srgb, var(--accent) 20%, rgba(0,0,0,.16));
+      border:1px solid color-mix(in srgb, var(--accent) 35%, rgba(255,255,255,.10));
+      color: color-mix(in srgb, var(--accent) 35%, white 65%);
+      font-weight:800;
+    }
+    .today{
+      outline: 2px solid color-mix(in srgb, var(--accent) 60%, rgba(255,255,255,.20));
+      background: color-mix(in srgb, var(--accent) 14%, rgba(0,0,0,.10));
+    }
+    .side{padding: 12px;}
+    label{display:block; font-size:12px; color: var(--muted); font-weight:700; margin: 10px 0 6px}
+    input, textarea{
+      width:100%;
+      padding: 10px 12px;
+      border-radius: 14px;
+      border:1px solid rgba(255,255,255,.12);
+      background: rgba(0,0,0,.20);
+      color: var(--text);
+      outline:none;
+    }
+    textarea{min-height: 86px; resize: vertical}
+    .row{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
+    .actions{display:flex; gap:10px; margin-top: 12px; flex-wrap:wrap}
+    .events{
+      margin-top: 12px;
+      display:flex; flex-direction:column; gap:10px;
+      max-height: 540px; overflow:auto; padding-right: 6px;
+    }
+    .event{
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(0,0,0,.16);
+      border: 1px solid rgba(255,255,255,.10);
+    }
+    .event .head{display:flex; justify-content:space-between; gap:10px; align-items:flex-start}
+    .event .name{font-weight:900}
+    .event .meta{color: var(--muted); font-size:12px; margin-top:2px}
+    .event .desc{margin-top: 8px; color: rgba(234,240,255,.90); font-size:13px; line-height:1.35}
+    .notice{
+      margin-top: 10px; padding: 10px 12px; border-radius: 16px;
+      background: color-mix(in srgb, var(--accent) 10%, rgba(255,255,255,.05));
+      border:1px solid color-mix(in srgb, var(--accent) 22%, rgba(255,255,255,.10));
+      color: var(--muted); font-size:12px;
+    }
+    .hr{border:0; border-top:1px solid rgba(255,255,255,.10); margin: 14px 0;}
+    @media (max-width: 900px){
+      .grid{grid-template-columns: 1fr}
+      .day{min-height: 74px}
+      .events{max-height:none}
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div class="title">
+        🗓️ Webowy Kalendarz
+        <span class="pill">Nieograniczone eventy • mail: dzień wcześniej • e-mail: {{ "ON" if email_enabled else "OFF" }}</span>
+      </div>
+      <div class="actions">
+        <a class="btn secondary" href="{{ url_for('index') }}">Dziś</a>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="monthbar">
+          <a class="btn secondary" href="{{ url_for('index', y=prev_y, m=prev_m, d=selected_day_num) }}">← Poprzedni</a>
+          <div>
+            <div class="monthname">{{ month_name }} {{ y }}</div>
+            <div class="small">Kliknij dzień, aby podejrzeć i dodać wydarzenia</div>
+          </div>
+          <a class="btn secondary" href="{{ url_for('index', y=next_y, m=next_m, d=selected_day_num) }}">Następny →</a>
+        </div>
+
+        <div class="weekdays">{% for w in weekdays %}<div>{{ w }}</div>{% endfor %}</div>
+
+        <div class="days">
+          {% for cell in calendar_cells %}
+            <a class="day {% if cell['muted'] %}muted{% endif %} {% if cell['is_today'] %}today{% endif %}"
+               href="{{ url_for('index', y=cell['y'], m=cell['m'], d=cell['d']) }}">
+              <div class="num">{{ cell['d'] }}</div>
+              {% if cell['count'] > 0 %}
+                <div class="badge">{{ cell['count'] }} wydarzeń</div>
+              {% endif %}
+            </a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Wybrany dzień</h3>
+        <div class="side">
+          <div style="font-size:18px; font-weight:900;">
+            {{ selected_date_human }}
+          </div>
+          <div class="small">Wydarzenia: {{ selected_events|length }} (bez limitu)</div>
+
+          <div class="notice">
+            Powiadomienie e-mail idzie <b>dzień wcześniej</b>.
+            Jeśli brak godziny, przyjmuję <b>{{ default_time }}</b> (i mail poleci dzień wcześniej o {{ default_time }}).
+            Odbiorcy: <b>{{ notify_to|join(", ") }}</b>.
+          </div>
+
+          <div class="events">
+            {% if selected_events|length == 0 %}
+              <div class="event">
+                <div class="name">Brak wydarzeń</div>
+                <div class="meta">Dodaj nowe poniżej 👇</div>
+              </div>
+            {% else %}
+              {% for e in selected_events %}
+                <div class="event">
+                  <div class="head">
+                    <div>
+                      <div class="name">{{ e['title'] }}</div>
+                      <div class="meta">
+                        {{ e['date'] }}{% if e.get('time') %} • {{ e['time'] }}{% else %} • (brak godziny){% endif %}
+                        • przypomnienie: dzień wcześniej
+                      </div>
+                    </div>
+                    <a class="btn danger" href="{{ url_for('delete_event', event_id=e['id'], y=y, m=m, d=selected_day_num) }}">Usuń</a>
+                  </div>
+                  {% if e.get('description') %}
+                    <div class="desc">{{ e['description'] }}</div>
+                  {% endif %}
+                </div>
+              {% endfor %}
+            {% endif %}
+          </div>
+
+          <hr class="hr"/>
+
+          <form method="post" action="{{ url_for('add_event', y=y, m=m, d=selected_day_num) }}">
+            <label>Dodaj 1 wydarzenie</label>
+            <input name="title" placeholder="Tytuł" required />
+
+            <div class="row">
+              <div>
+                <label>Data</label>
+                <input name="date" type="date" value="{{ selected_date_iso }}" required />
+              </div>
+              <div>
+                <label>Godzina (opcjonalnie)</label>
+                <input name="time" type="time" />
+              </div>
+            </div>
+
+            <label>Opis (opcjonalnie)</label>
+            <textarea name="description" placeholder="Szczegóły..."></textarea>
+
+            <div class="actions">
+              <button class="btn" type="submit">➕ Dodaj</button>
+              <a class="btn secondary" href="{{ url_for('index', y=y, m=m, d=selected_day_num) }}">Odśwież</a>
+            </div>
+          </form>
+
+          <hr class="hr"/>
+
+          <form method="post" action="{{ url_for('bulk_add', y=y, m=m, d=selected_day_num) }}">
+            <label>Dodaj wiele wydarzeń naraz (bez limitu)</label>
+            <div class="notice" style="margin-top:6px">
+              Wklej linie w formacie:
+              <br><b>HH:MM | Tytuł | opis</b>
+              <br>albo: <b>Tytuł | opis</b>
+              <br>albo: <b>Tytuł</b>
+            </div>
+
+            <textarea name="bulk" placeholder="09:00 | Spotkanie | Omówienie projektu&#10;12:30 | Lunch |&#10;Telefon do banku"></textarea>
+            <input type="hidden" name="date" value="{{ selected_date_iso }}" />
+
+            <div class="actions">
+              <button class="btn" type="submit">📥 Dodaj wszystkie</button>
+              <a class="btn secondary" href="{{ url_for('index', y=y, m=m, d=selected_day_num) }}">Odśwież</a>
+            </div>
+          </form>
+
+          {% if not email_enabled %}
+            <div class="notice">
+              E-mail jest <b>OFF</b>, bo nie ustawiono <b>CAL_EMAIL_USER</b> / <b>CAL_EMAIL_PASS</b>.
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+# ----------------------------
+# ROUTES
+# ----------------------------
+@app.get("/")
+def index():
+    today = date.today()
+
+    y = int(request.args.get("y", today.year))
+    m = int(request.args.get("m", today.month))
+    d = request.args.get("d", None)
+
+    if d is None:
+        selected_day = today.day if (y == today.year and m == today.month) else 1
+    else:
+        selected_day = max(1, min(31, int(d)))
+
+    cal = calendar.Calendar(firstweekday=0)  # Monday=0
+    month_days = list(cal.itermonthdates(y, m))
+
+    events = load_events()
+    counts = {}
+    for e in events:
+        counts[e["date"]] = counts.get(e["date"], 0) + 1
+
+    cells = []
+    for dt in month_days:
+        iso = dt.isoformat()
+        cells.append({
+            "y": dt.year,
+            "m": dt.month,
+            "d": dt.day,
+            "muted": (dt.month != m),
+            "count": counts.get(iso, 0),
+            "is_today": (dt == today)
+        })
+
+    last_day = calendar.monthrange(y, m)[1]
+    selected_day = min(selected_day, last_day)
+
+    selected_date = date(y, m, selected_day)
+    selected_iso = selected_date.isoformat()
+
+    # NIEOGRANICZONE: bierzemy wszystkie eventy z dnia
+    selected_events = sort_events_in_day(events_for_day(events, selected_iso))
+
+    prev_y, prev_m = (y - 1, 12) if m == 1 else (y, m - 1)
+    next_y, next_m = (y + 1, 1) if m == 12 else (y, m + 1)
+
+    month_name = {
+        1:"Styczeń",2:"Luty",3:"Marzec",4:"Kwiecień",5:"Maj",6:"Czerwiec",
+        7:"Lipiec",8:"Sierpień",9:"Wrzesień",10:"Październik",11:"Listopad",12:"Grudzień"
+    }[m]
+
+    weekdays = ["Pon", "Wto", "Śro", "Czw", "Pią", "Sob", "Nie"]
+    selected_human = selected_date.strftime("%d.%m.%Y")
+
+    accent = MONTH_COLORS.get(m, "#7c3aed")
+
+    return render_template_string(
+        TEMPLATE,
+        y=y, m=m,
+        prev_y=prev_y, prev_m=prev_m,
+        next_y=next_y, next_m=next_m,
+        month_name=month_name,
+        weekdays=weekdays,
+        calendar_cells=cells,
+        selected_day_num=selected_day,
+        selected_date_iso=selected_iso,
+        selected_date_human=selected_human,
+        selected_events=selected_events,
+        email_enabled=can_send_email(),
+        notify_to=NOTIFY_TO,
+        default_time=DEFAULT_EVENT_TIME_IF_EMPTY.strftime("%H:%M"),
+        accent=accent
+    )
+
+@app.post("/add")
+def add_event():
+    y = request.args.get("y")
+    m = request.args.get("m")
+    d = request.args.get("d")
+
+    title = (request.form.get("title") or "").strip()
+    dt = (request.form.get("date") or "").strip()
+    tm = (request.form.get("time") or "").strip()
+    desc = (request.form.get("description") or "").strip()
+
+    if not title or not dt:
+        return redirect(url_for("index", y=y, m=m, d=d))
+
+    # walidacja daty
+    try:
+        datetime.strptime(dt, "%Y-%m-%d")
+    except ValueError:
+        return redirect(url_for("index", y=y, m=m, d=d))
+
+    # walidacja czasu (opcjonalnie)
+    if tm:
+        try:
+            datetime.strptime(tm, "%H:%M")
+        except ValueError:
+            tm = ""
+
+    e = {
+        "id": uuid.uuid4().hex,
+        "title": title,
+        "date": dt,
+        "time": tm,
+        "description": desc
+    }
+
+    events = load_events()
+    events.append(e)
+    save_events(events)
+
+    # mail dzień wcześniej
+    schedule_email_day_before(e)
+
+    yyyy, mm, dd = dt.split("-")
+    return redirect(url_for("index", y=int(yyyy), m=int(mm), d=int(dd)))
+
+@app.post("/bulk_add")
+def bulk_add():
+    y = request.args.get("y")
+    m = request.args.get("m")
+    d = request.args.get("d")
+
+    target_date = (request.form.get("date") or "").strip()
+    bulk_text = (request.form.get("bulk") or "")
+
+    # walidacja daty
+    try:
+        datetime.strptime(target_date, "%Y-%m-%d")
+    except ValueError:
+        return redirect(url_for("index", y=y, m=m, d=d))
+
+    new_events = parse_bulk_lines(bulk_text, target_date)
+    if not new_events:
+        yyyy, mm, dd = target_date.split("-")
+        return redirect(url_for("index", y=int(yyyy), m=int(mm), d=int(dd)))
+
+    events = load_events()
+    events.extend(new_events)
+    save_events(events)
+
+    # zaplanuj maile (dzień wcześniej) dla wszystkich
+    for e in new_events:
+        schedule_email_day_before(e)
+
+    yyyy, mm, dd = target_date.split("-")
+    return redirect(url_for("index", y=int(yyyy), m=int(mm), d=int(dd)))
+
+@app.get("/delete/<event_id>")
+def delete_event(event_id):
+    y = request.args.get("y")
+    m = request.args.get("m")
+    d = request.args.get("d")
+
+    events = load_events()
+    events = [e for e in events if e.get("id") != event_id]
+    save_events(events)
+
+    # usuń job maila
+    job_id = f"email_{event_id}"
+    try:
+        scheduler.remove_job(job_id)
+    except Exception:
+        pass
+
+    return redirect(url_for("index", y=y, m=m, d=d))
+
+# ----------------------------
+# START
+# ----------------------------
+if __name__ == "__main__":
+    scheduler.start()
+    reschedule_all_events()
+    app.run(debug=True)
