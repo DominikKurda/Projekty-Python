@@ -5,247 +5,461 @@ import random
 app = Flask(__name__)
 
 board = chess.Board()
-selected_square = None
-move_history = []
+captured_white=[]
+captured_black=[]
+difficulty = 2
 
-pieces = {
+hint_count = 0
+MAX_HINTS = 2
+
+pieces={
 "P":"♙","R":"♖","N":"♘","B":"♗","Q":"♕","K":"♔",
 "p":"♟","r":"♜","n":"♞","b":"♝","q":"♛","k":"♚"
 }
 
+# ------------------ BOARD ------------------
+
 def board_to_unicode():
+ rows=[]
+ for rank in range(7,-1,-1):
+  row=[]
+  for file in range(8):
+   piece=board.piece_at(chess.square(file,rank))
+   row.append(pieces[piece.symbol()] if piece else "")
+  rows.append(row)
+ return rows
 
-    rows = []
+def get_moves(square):
+ return [m.to_square for m in board.legal_moves if m.from_square==square]
 
-    for rank in range(7,-1,-1):
+def get_threatened_pieces():
+ threatened=[]
+ for square, piece in board.piece_map().items():
+  if piece.color == board.turn:
+   if board.is_attacked_by(not board.turn, square):
+    threatened.append(square)
+ return threatened
 
-        row = []
+# ------------------ AI ------------------
 
-        for file in range(8):
+def evaluate():
+ values={chess.PAWN:100,chess.KNIGHT:320,chess.BISHOP:330,
+         chess.ROOK:500,chess.QUEEN:900,chess.KING:20000}
+ score=0
+ for p in values:
+  score+=len(board.pieces(p,chess.WHITE))*values[p]
+  score-=len(board.pieces(p,chess.BLACK))*values[p]
+ return score
 
-            piece = board.piece_at(chess.square(file,rank))
+def alphabeta(depth,alpha,beta,maxi):
+ if depth==0 or board.is_game_over(): return evaluate()
 
-            if piece:
-                row.append(pieces[piece.symbol()])
-            else:
-                row.append("")
+ if maxi:
+  m=-999999
+  for move in board.legal_moves:
+   board.push(move)
+   v=alphabeta(depth-1,alpha,beta,False)
+   board.pop()
+   m=max(m,v); alpha=max(alpha,v)
+   if beta<=alpha: break
+  return m
+ else:
+  m=999999
+  for move in board.legal_moves:
+   board.push(move)
+   v=alphabeta(depth-1,alpha,beta,True)
+   board.pop()
+   m=min(m,v); beta=min(beta,v)
+   if beta<=alpha: break
+  return m
 
-        rows.append(row)
+def get_best_move(depth,white):
+ best=None
+ if white:
+  val=-999999
+  for m in board.legal_moves:
+   board.push(m)
+   v=alphabeta(depth-1,-999999,999999,False)
+   board.pop()
+   if v>val: val=v; best=m
+ else:
+  val=999999
+  for m in board.legal_moves:
+   board.push(m)
+   v=alphabeta(depth-1,-999999,999999,True)
+   board.pop()
+   if v<val: val=v; best=m
+ return best
 
-    return rows
+# ------------------ HTML ------------------
 
-
-HTML = """
-
+HTML="""
 <!DOCTYPE html>
 <html>
-
 <head>
-
-<title>Szachy Web Python</title>
+<title>Szachy ULTIMATE</title>
 
 <style>
-
 body{
-background:#1f1f1f;
-color:white;
-text-align:center;
+background:radial-gradient(circle,#5a3e1b,#2b1a0d);
 font-family:Arial;
+text-align:center;
+color:white;
+}
+
+button{
+padding:12px 25px;margin:5px;
+border:none;border-radius:12px;
+cursor:pointer;
+font-weight:bold;
+background:linear-gradient(45deg,#8b5a2b,#c19a6b);
+color:white;
+transition:0.3s;
+}
+button:hover{transform:scale(1.1);}
+
+.level-btn.active{
+background:linear-gradient(45deg,#4CAF50,#2ecc71);
+}
+
+#game{display:flex;justify-content:center;gap:20px;}
+
+#capturedBlack,#capturedWhite{
+width:120px;min-height:720px;background:#222;
+display:flex;flex-wrap:wrap;font-size:40px;padding:5px;
 }
 
 #board{
-width:480px;
-height:480px;
-margin:auto;
+width:720px;height:720px;
 display:grid;
 grid-template-columns:repeat(8,1fr);
-border:4px solid #444;
+border:10px solid #3e2a14;
+position:relative;
 }
 
 .square{
-width:60px;
-height:60px;
-font-size:40px;
-display:flex;
-align-items:center;
-justify-content:center;
+width:90px;height:90px;font-size:60px;
+display:flex;align-items:center;justify-content:center;
 cursor:pointer;
 }
 
 .white{background:#f0d9b5;}
 .black{background:#b58863;}
 
-.square:hover{
-outline:3px solid yellow;
-}
+.highlight{box-shadow: inset 0 0 20px yellow;}
+.threat{box-shadow: inset 0 0 25px red;}
+.hint{box-shadow: inset 0 0 25px lime;}
 
-button{
-padding:10px 20px;
-font-size:18px;
-margin-top:20px;
-background:#4CAF50;
-border:none;
-color:white;
-cursor:pointer;
-}
-
-#history{
-margin-top:20px;
-}
-
+.piece-white{color:#fff;text-shadow:0 0 8px #000;}
+.piece-black{color:#000;text-shadow:0 0 8px #fff;}
 </style>
-
 </head>
 
 <body>
 
-<h1>♟ Szachy Web (Python)</h1>
+<h1>♟ Szachy ULTIMATE</h1>
 
+<div>
+<button class="level-btn active" onclick="setLevel(1,this)">Łatwy</button>
+<button class="level-btn" onclick="setLevel(2,this)">Średni</button>
+<button class="level-btn" onclick="setLevel(3,this)">Trudny</button>
+</div>
+
+<div id="hintInfo">Podpowiedzi: 2</div>
+
+<button onclick="newGame()">🔄 Nowa partia</button>
+<button onclick="getHint()">💡 Podpowiedź</button>
+
+<div id="game">
+<div id="capturedBlack"></div>
 <div id="board"></div>
+<div id="capturedWhite"></div>
+</div>
 
-<button onclick="newGame()">Nowa gra</button>
-
-<div id="history"></div>
+<!-- AUDIO -->
+<audio id="moveSound" src="https://cdn.jsdelivr.net/gh/ornicar/lila@master/public/sound/standard/Move.mp3"></audio>
+<audio id="captureSound" src="https://cdn.jsdelivr.net/gh/ornicar/lila@master/public/sound/standard/Capture.mp3"></audio>
+<audio id="checkSound" src="https://cdn.jsdelivr.net/gh/ornicar/lila@master/public/sound/standard/Check.mp3"></audio>
+<audio id="mateSound" src="https://cdn.jsdelivr.net/gh/ornicar/lila@master/public/sound/standard/End.mp3"></audio>
 
 <script>
 
+let selected=null
+let legalMoves=[]
+let threatened=[]
+let hintLeft=2
+let hintSquare=null
+let lastBoard=null
+
+// 🔊 UNLOCK AUDIO
+let audioUnlocked=false
+document.body.addEventListener("click",()=>{
+ if(audioUnlocked) return
+ document.querySelectorAll("audio").forEach(a=>{
+  a.play().then(()=>a.pause()).catch(()=>{})
+ })
+ audioUnlocked=true
+})
+
+// 🔊 SOUND
+function playSound(type){
+ if(type=="move") document.getElementById("moveSound").play()
+ if(type=="capture") document.getElementById("captureSound").play()
+ if(type=="check") document.getElementById("checkSound").play()
+ if(type=="mate") document.getElementById("mateSound").play()
+}
+
+function setLevel(lvl,btn){
+ fetch("/level/"+lvl)
+ document.querySelectorAll(".level-btn").forEach(b=>b.classList.remove("active"))
+ btn.classList.add("active")
+}
+
 function drawBoard(board){
+ lastBoard=board
 
-let div=document.getElementById("board")
+ let div=document.getElementById("board")
+ div.innerHTML=""
 
-div.innerHTML=""
+ for(let y=0;y<8;y++){
+  for(let x=0;x<8;x++){
 
-for(let y=0;y<8;y++){
+   let sq=document.createElement("div")
+   sq.className="square "+((x+y)%2==0?"white":"black")
 
-for(let x=0;x<8;x++){
+   let id=x+"_"+y
+   sq.dataset.pos=id
 
-let sq=document.createElement("div")
+   let piece=board[y][x]
 
-sq.className="square "+((x+y)%2==0?"white":"black")
+   if(piece){
+    let span=document.createElement("span")
+    span.className=("♙♖♘♗♕♔".includes(piece))?"piece-white":"piece-black"
+    span.innerText=piece
+    sq.appendChild(span)
+   }
 
-sq.innerHTML=board[y][x]
+   if(legalMoves.includes(id)) sq.classList.add("highlight")
+   if(threatened.includes(id)) sq.classList.add("threat")
+   if(hintSquare && hintSquare==id) sq.classList.add("hint")
 
-sq.dataset.pos=x+"_"+y
-
-sq.onclick=clickSquare
-
-div.appendChild(sq)
-
-}
-
-}
-
+   sq.onclick=clickSquare
+   div.appendChild(sq)
+  }
+ }
 }
 
 function clickSquare(){
 
-fetch("/move",{
-method:"POST",
-headers:{"Content-Type":"application/json"},
-body:JSON.stringify({square:this.dataset.pos})
-})
+let pos=this.dataset.pos
 
-.then(r=>r.json())
-.then(data=>{
-drawBoard(data.board)
-showMoves(data.moves)
-})
+if(selected==null){
 
+ selected=pos
+
+ fetch("/legal",{method:"POST",
+ headers:{"Content-Type":"application/json"},
+ body:JSON.stringify({square:pos})})
+ .then(r=>r.json())
+ .then(data=>{
+  legalMoves=data.moves
+  threatened=data.threatened
+  drawBoard(data.board)
+ })
+
+}else{
+
+ fetch("/move",{method:"POST",
+ headers:{"Content-Type":"application/json"},
+ body:JSON.stringify({from:selected,to:pos})})
+ .then(r=>r.json())
+ .then(data=>{
+
+  selected=null
+  legalMoves=[]
+  threatened=[]
+  hintSquare=null
+
+  drawBoard(data.board)
+  updateCaptured(data.captured)
+
+  playSound(data.sound)
+
+ })
+}
 }
 
-function showMoves(moves){
+function getHint(){
 
-let div=document.getElementById("history")
+if(hintLeft<=0){
+ alert("Brak podpowiedzi!")
+ return
+}
 
-div.innerHTML="<h3>Ruchy</h3>"+moves.join("<br>")
+fetch("/hint")
+.then(r=>r.json())
+.then(data=>{
 
+ hintLeft--
+ document.getElementById("hintInfo").innerText="Podpowiedzi: "+hintLeft
+
+ hintSquare=data.hint
+ drawArrow(data.move)
+ drawBoard(lastBoard)
+
+})
+}
+
+function drawArrow(m){
+
+let canvas=document.createElement("canvas")
+canvas.width=720
+canvas.height=720
+
+let ctx=canvas.getContext("2d")
+ctx.strokeStyle="lime"
+ctx.lineWidth=8
+
+ctx.beginPath()
+ctx.moveTo(m.fromX*90+45,m.fromY*90+45)
+ctx.lineTo(m.toX*90+45,m.toY*90+45)
+ctx.stroke()
+
+document.getElementById("board").appendChild(canvas)
+
+setTimeout(()=>canvas.remove(),1500)
+}
+
+function updateCaptured(data){
+document.getElementById("capturedBlack").innerHTML=data.black.join(" ")
+document.getElementById("capturedWhite").innerHTML=data.white.join(" ")
 }
 
 function newGame(){
+hintLeft=2
+hintSquare=null
+document.getElementById("hintInfo").innerText="Podpowiedzi: 2"
 
 fetch("/new")
 .then(r=>r.json())
 .then(data=>{
 drawBoard(data.board)
-showMoves([])
+updateCaptured(data.captured)
 })
-
 }
 
 fetch("/board")
 .then(r=>r.json())
-.then(data=>drawBoard(data.board))
+.then(data=>{
+drawBoard(data.board)
+updateCaptured(data.captured)
+})
 
 </script>
 
 </body>
-
 </html>
-
 """
 
+# ------------------ ROUTES ------------------
 
 @app.route("/")
 def index():
-    return render_template_string(HTML)
+ return render_template_string(HTML)
 
+@app.route("/level/<int:lvl>")
+def level(lvl):
+ global difficulty
+ difficulty=lvl
+ return "OK"
+
+@app.route("/hint")
+def hint():
+ global hint_count
+
+ if hint_count >= MAX_HINTS:
+  return jsonify({"move":None,"hint":None})
+
+ hint_count += 1
+ move=get_best_move(2, True)
+
+ return jsonify({
+  "move":{
+   "fromX":chess.square_file(move.from_square),
+   "fromY":7-chess.square_rank(move.from_square),
+   "toX":chess.square_file(move.to_square),
+   "toY":7-chess.square_rank(move.to_square)
+  },
+  "hint":f"{chess.square_file(move.to_square)}_{7-chess.square_rank(move.to_square)}"
+ })
 
 @app.route("/board")
 def get_board():
-    return jsonify({"board":board_to_unicode()})
+ return jsonify({
+  "board":board_to_unicode(),
+  "captured":{"white":captured_white,"black":captured_black}
+ })
 
+@app.route("/legal",methods=["POST"])
+def legal():
+ data=request.json
+ x,y=data["square"].split("_")
+ square=chess.square(int(x),7-int(y))
 
-@app.route("/new")
-def new():
+ moves=[f"{chess.square_file(m)}_{7-chess.square_rank(m)}" for m in get_moves(square)]
+ threatened=[f"{chess.square_file(s)}_{7-chess.square_rank(s)}" for s in get_threatened_pieces()]
 
-    global board,selected_square,move_history
-
-    board = chess.Board()
-    selected_square = None
-    move_history = []
-
-    return jsonify({"board":board_to_unicode()})
-
+ return jsonify({"board":board_to_unicode(),"moves":moves,"threatened":threatened})
 
 @app.route("/move",methods=["POST"])
 def move():
+ data=request.json
+ fx,fy=data["from"].split("_")
+ tx,ty=data["to"].split("_")
 
-    global selected_square
+ move=chess.Move(chess.square(int(fx),7-int(fy)), chess.square(int(tx),7-int(ty)))
 
-    data = request.json
+ sound="move"
 
-    x,y = data["square"].split("_")
-    x = int(x)
-    y = int(y)
+ if move in board.legal_moves:
 
-    square = chess.square(x,7-y)
+  if board.is_capture(move):
+   sound="capture"
 
-    if selected_square is None:
+  board.push(move)
 
-        if board.piece_at(square):
-            selected_square = square
+  if board.is_check():
+   sound="check"
 
-    else:
+  if board.is_checkmate():
+   sound="mate"
 
-        move = chess.Move(selected_square,square)
+  if not board.is_game_over():
+   if difficulty==1:
+    ai=random.choice(list(board.legal_moves))
+   else:
+    depth=2 if difficulty==2 else 3
+    ai=get_best_move(depth, False)
 
-        if move in board.legal_moves:
+   if ai:
+    board.push(ai)
 
-            board.push(move)
-            move_history.append(str(move))
+ return jsonify({
+  "board":board_to_unicode(),
+  "captured":{"white":captured_white,"black":captured_black},
+  "sound":sound
+ })
 
-            if not board.is_game_over():
-
-                ai_move = random.choice(list(board.legal_moves))
-                board.push(ai_move)
-                move_history.append(str(ai_move))
-
-        selected_square = None
-
-    return jsonify({
-        "board":board_to_unicode(),
-        "moves":move_history
-    })
-
+@app.route("/new")
+def new():
+ global board,captured_white,captured_black,hint_count
+ board=chess.Board()
+ captured_white=[]
+ captured_black=[]
+ hint_count=0
+ return jsonify({
+  "board":board_to_unicode(),
+  "captured":{"white":[],"black":[]}
+ })
 
 app.run(debug=True)
