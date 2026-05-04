@@ -10,105 +10,98 @@ questions_pool = [
         'question': 'Które miasto było celem masakry na rynku Markale w 1994 roku?',
         'options': ['Sarajewo', 'Mostar', 'Banja Luka', 'Tuzla'],
         'answer': 'Sarajewo',
-        'explanation': 'Masakra na targowisku Markale w Sarajewie (5 lutego 1994 r.) była jednym z najtragiczniejszych epizodów oblężenia miasta – zginęło 68 cywilów, a ponad 140 zostało rannych. Atak został przypisany siłom bośniackich Serbów.'
+        'explanation': 'Masakra na targowisku Markale w Sarajewie (5 lutego 1994 r.) była jednym z najtragiczniejszych epizodów oblężenia miasta.'
     },
     {
         'type': 'text',
         'question': 'Kto był prezydentem Chorwacji podczas wojny w latach 1991–1995?',
         'options': ['Franjo Tuđman', 'Slobodan Milošević', 'Alija Izetbegović', 'Radovan Karadžić'],
         'answer': 'Franjo Tuđman',
-        'explanation': 'Franjo Tuđman był pierwszym prezydentem niepodległej Chorwacji (od 1990 r.) i kierował państwem podczas wojny o niepodległość w latach 1991–1995.'
+        'explanation': 'Był pierwszym prezydentem niepodległej Chorwacji.'
     },
     {
         'type': 'text',
         'question': 'Jak nazywał się plan pokojowy z 1992 roku, który zakładał podział Bośni na kantony?',
         'options': ['Plan Vance-Owen', 'Plan Dayton', 'Plan Z-4', 'Plan Kumanovo'],
         'answer': 'Plan Vance-Owen',
-        'explanation': 'Plan Vance–Owen z 1992 r. zakładał podział Bośni i Hercegowiny na 10 wieloetnicznych prowincji (kantonów). Plan zaakceptowali Bośniacy i Chorwaci, ale został odrzucony przez bośniackich Serbów, co uniemożliwiło jego realizację.'
+        'explanation': 'Zakładał podział Bośni na prowincje.'
     },
     {
         'type': 'text',
         'question': 'Kto był głównodowodzącym NATO podczas nalotów na Serbię w 1999 roku?',
         'options': ['Wesley Clark', 'James Mattis', 'Colin Powell', 'Javier Solana'],
         'answer': 'Wesley Clark',
-        'explanation': 'Generał Wesley K. Clark był Naczelnym Dowódcą Połączonych Sił Zbrojnych NATO w Europie (SACEUR) podczas operacji Allied Force przeciwko Jugosławii (Serbii i Czarnogórze) w 1999 r.'
+        'explanation': 'Dowodził operacją Allied Force.'
     },
     {
         'type': 'text',
-        'question': 'Który kraj przyjął najwięcej uchodźców z Bośni i Hercegowiny podczas wojny?',
+        'question': 'Który kraj przyjął najwięcej uchodźców z Bośni?',
         'options': ['Niemcy', 'Szwecja', 'Chorwacja', 'Turcja'],
         'answer': 'Niemcy',
-        'explanation': 'Niemcy przyjęły w czasie wojny w Bośni i Hercegowinie (1992–1995) kilkaset tysięcy uchodźców, głównie Bośniaków i Chorwatów. Było to jedno z głównych państw przyjmujących uchodźców z tego konfliktu.'
+        'explanation': 'Przyjęły setki tysięcy uchodźców.'
     },
     {
         'type': 'text',
-        'question': 'Który przywódca był oskarżony o zbrodnie przeciwko ludzkości i zmarł w Hadze?',
+        'question': 'Który przywódca zmarł w Hadze?',
         'options': ['Slobodan Milošević', 'Radovan Karadžić', 'Ratko Mladić', 'Franjo Tuđman'],
         'answer': 'Slobodan Milošević',
-        'explanation': 'Slobodan Milošević, były prezydent Serbii i Jugosławii, był sądzony przed Międzynarodowym Trybunałem ds. Zbrodni w b. Jugosławii (ICTY) za zbrodnie przeciwko ludzkości i zbrodnie wojenne. Zmarł w celi w Hadze w 2006 r., zanim zapadł prawomocny wyrok.'
+        'explanation': 'Zmarł przed wydaniem wyroku.'
     },
     {
         'type': 'text',
-        'question': 'Jaką nazwę nosiła serbska formacja paramilitarna znana z brutalnych działań?',
-        'options': ['Tygrysy Arkana', 'Błękitne Hełmy', 'HVO', 'UÇK'],
+        'question': 'Jaką nazwę nosiła serbska formacja paramilitarna?',
+        'options': ['Tygrysy Arkana', 'HVO', 'UÇK', 'ONZ'],
         'answer': 'Tygrysy Arkana',
-        'explanation': '„Tygrysy Arkana” (Srpska dobrovoljačka garda) to serbska formacja paramilitarna dowodzona przez Željko „Arkana” Ražnatovicia. Jednostka ta była oskarżana o masowe zbrodnie wojenne, szczególnie w Chorwacji i Bośni i Hercegowinie.'
+        'explanation': 'Jedna z najbardziej brutalnych jednostek.'
     },
     {
         'type': 'text',
-        'question': 'Jakie miasto było stolicą samozwańczej Republiki Serbskiej Krajiny?',
-        'options': ['Knin', 'Banja Luka', 'Split', 'Dubrovnik'],
+        'question': 'Stolica Republiki Serbskiej Krajiny?',
+        'options': ['Knin', 'Split', 'Dubrovnik', 'Zagrzeb'],
         'answer': 'Knin',
-        'explanation': 'Knin, położony w Dalmacji, był faktyczną stolicą samozwańczej Republiki Serbskiej Krajiny, istniejącej w latach 1991–1995 na terytorium Chorwacji.'
+        'explanation': 'Była głównym ośrodkiem separatystów.'
     },
     {
         'type': 'text',
-        'question': 'Jak nazywał się kontyngent ONZ stacjonujący w Bośni podczas wojny?',
+        'question': 'Misja ONZ w Bośni?',
         'options': ['UNPROFOR', 'KFOR', 'ISAF', 'SFOR'],
         'answer': 'UNPROFOR',
-        'explanation': 'UNPROFOR (United Nations Protection Force) był misją pokojową ONZ utworzoną początkowo w Chorwacji, a następnie rozszerzoną na Bośnię i Hercegowinę. Działała tam w latach 1992–1995, m.in. w tzw. „strefach bezpieczeństwa” takich jak Srebrenica.'
+        'explanation': 'Misja pokojowa ONZ.'
     },
     {
         'type': 'text',
-        'question': 'W którym roku rozpoczęła się wojna w Bośni i Hercegowinie?',
-        'options': ['1992', '1989', '1995', '2001'],
+        'question': 'W którym roku zaczęła się wojna w Bośni?',
+        'options': ['1992', '1991', '1995', '2001'],
         'answer': '1992',
-        'explanation': 'Wojna w Bośni i Hercegowinie rozpoczęła się w 1992 r., krótko po referendum niepodległościowym i uznaniu kraju przez Wspólnotę Europejską. Trwała do podpisania porozumienia w Dayton w 1995 r., a jej bilans to ponad 100 000 zabitych.'
+        'explanation': 'Po referendum niepodległości.'
     },
     {
         'type': 'text',
-        'question': 'Jakie miasto było oblężone przez ponad 1400 dni?',
-        'options': ['Sarajewo', 'Belgrad', 'Zagrzeb', 'Mostar'],
+        'question': 'Jakie miasto było oblężone ponad 1400 dni?',
+        'options': ['Sarajewo', 'Belgrad', 'Mostar', 'Zagrzeb'],
         'answer': 'Sarajewo',
-        'explanation': 'Sarajewo, stolica Bośni i Hercegowiny, było oblegane przez siły bośniackich Serbów od kwietnia 1992 r. do lutego 1996 r. – ponad 1400 dni. To najdłuższe oblężenie stolicy we współczesnej historii Europy.'
+        'explanation': 'Najdłuższe oblężenie w Europie.'
     },
     {
         'type': 'text',
-        'question': 'W której miejscowości miała miejsce masakra ponad 8000 Bośniaków?',
-        'options': ['Srebrenica', 'Sarajewo', 'Prijedor', 'Vukovar'],
+        'question': 'Gdzie miała miejsce masakra 8000 osób?',
+        'options': ['Srebrenica', 'Sarajewo', 'Vukovar', 'Mostar'],
         'answer': 'Srebrenica',
-        'explanation': 'W lipcu 1995 r. w Srebrenicy, ogłoszonej wcześniej przez ONZ „strefą bezpieczeństwa”, siły bośniackich Serbów zamordowały ponad 8000 bośniackich muzułmanów – mężczyzn i chłopców. Zbrodnia ta została uznana przez Międzynarodowy Trybunał i Międzynarodowy Trybunał Sprawiedliwości za akt ludobójstwa.'
+        'explanation': 'Uznana za ludobójstwo.'
     },
     {
         'type': 'text',
-        'question': 'Które państwo jako pierwsze ogłosiło niepodległość od Jugosławii?',
-        'options': ['Słowenia', 'Chorwacja', 'Bośnia i Hercegowina', 'Kosowo'],
+        'question': 'Pierwsze państwo które opuściło Jugosławię?',
+        'options': ['Słowenia', 'Chorwacja', 'Bośnia', 'Kosowo'],
         'answer': 'Słowenia',
-        'explanation': 'Słowenia ogłosiła niepodległość od Socjalistycznej Federacyjnej Republiki Jugosławii 25 czerwca 1991 r. Wydarzenie to zapoczątkowało rozpad federacji, choć sama wojna w Słowenii (tzw. wojna dziesięciodniowa) była stosunkowo krótka.'
+        'explanation': '1991 rok.'
     },
     {
         'type': 'text',
-        'question': 'Która armia dopuściła się oblężenia Vukovaru?',
-        'options': ['Jugosłowiańska Armia Ludowa (JNA)', 'NATO', 'Armia Chorwacka', 'Arkanowcy'],
-        'answer': 'Jugosłowiańska Armia Ludowa (JNA)',
-        'explanation': 'Oblężenie Vukovaru w Chorwacji trwało od sierpnia do listopada 1991 r. Miasto było bronione przez siły chorwackie, a atakowane przez Jugosłowiańską Armię Ludową (JNA) wspieraną przez serbskie formacje paramilitarne. Po kapitulacji doszło do licznych zbrodni na jeńcach i ludności cywilnej.'
-    },
-    {
-        'type': 'text',
-        'question': 'Która organizacja zbombardowała Serbię w 1999?',
-        'options': ['NATO', 'ONZ', 'UE', 'OBWE'],
+        'question': 'Kto zbombardował Serbię w 1999?',
+        'options': ['NATO', 'ONZ', 'UE', 'Rosja'],
         'answer': 'NATO',
-        'explanation': 'NATO przeprowadziło naloty na Federalną Republikę Jugosławii (Serbia i Czarnogóra) w ramach operacji Allied Force od marca do czerwca 1999 r. Celem było wymuszenie zakończenia represji wobec Albańczyków w Kosowie. Operacja odbyła się bez formalnego mandatu Rady Bezpieczeństwa ONZ.'
+        'explanation': 'Operacja Allied Force.'
     },
     {
         'type': 'flag',
@@ -116,39 +109,45 @@ questions_pool = [
         'question': 'Czyja to flaga?',
         'options': ['Serbia', 'Bułgaria', 'Chorwacja', 'Słowenia'],
         'answer': 'Serbia',
-        'explanation': 'To współczesna flaga Serbii: trzy poziome pasy – czerwony (u góry), niebieski i biały – oraz umieszczony z lewej strony herb państwowy z dwugłowym orłem i krzyżem.'
+        'explanation': 'Flaga Serbii.'
     },
     {
         'type': 'flag',
         'image': 'https://flagcdn.com/w320/ba.png',
         'question': 'Czyja to flaga?',
-        'options': ['Bośnia i Hercegowina', 'Albania', 'Kosowo', 'Macedonia Północna'],
+        'options': ['Bośnia i Hercegowina', 'Kosowo', 'Albania', 'Macedonia'],
         'answer': 'Bośnia i Hercegowina',
-        'explanation': 'Flaga Bośni i Hercegowiny ma niebieskie tło, żółty trójkąt symbolizujący zarys kraju i trzy narody konstytutywne oraz pas białych gwiazd, które nawiązują do flagi Unii Europejskiej.'
+        'explanation': 'Flaga BiH.'
     },
     {
         'type': 'text',
-        'question': 'Kiedy podpisano Porozumienie w Dayton, które zakończyło wojnę w Bośni?',
+        'question': 'Kiedy podpisano Dayton?',
         'options': ['1995', '1992', '1998', '1990'],
         'answer': '1995',
-        'explanation': 'Porozumienie pokojowe z Dayton zostało wynegocjowane w listopadzie 1995 r. w bazie Wright-Patterson w USA, a formalnie podpisane 14 grudnia 1995 r. w Paryżu. Zakończyło ono wojnę w Bośni i Hercegowinie i ustaliło jej obecną strukturę ustrojową (Federacja Bośni i Hercegowiny oraz Republika Serbska).'
+        'explanation': 'Zakończyło wojnę.'
     },
     {
         'type': 'text',
         'question': 'Ile dni trwało oblężenie Sarajewa?',
-        'options': ['1425', '800', '1000', '1200'],
+        'options': ['1425', '1000', '800', '1200'],
         'answer': '1425',
-        'explanation': 'Oblężenie Sarajewa trwało 1425 dni – od kwietnia 1992 r. do lutego 1996 r. Miasto było niemal nieustannie ostrzeliwane, a mieszkańcy żyli w warunkach niedoboru żywności, wody i elektryczności.'
+        'explanation': 'Ponad 3 lata.'
     },
     {
         'type': 'text',
-        'question': 'Kiedy oficjalnie przestał obowiązywać paszport Socjalistycznej Federacyjnej Republiki Jugosławii (SFRJ)?',
+        'question': 'Kiedy przestał obowiązywać paszport SFRJ?',
         'options': ['1992', '1991', '1995', '2003'],
         'answer': '1992',
-        'explanation': '📌 Dlaczego rok 1992? W kwietniu 1992 SFRJ formalnie przestała istnieć. Na jej miejsce powstała Federalna Republika Jugosławii (Serbia i Czarnogóra), która zaczęła wydawać nowe paszporty. Paszporty SFRJ były jeszcze krótko używane, ale utraciły ważność w ruchu międzynarodowym w 1992 r.'
+        'explanation': 'Po rozpadzie państwa.'
+    },
+    {
+        'type': 'text',
+        'question': 'W którym kraju wynegocjowano Porozumienie z Dayton?',
+        'options': ['USA', 'Francja', 'Niemcy', 'Wielka Brytania'],
+        'answer': 'USA',
+        'explanation': 'Ohio, baza Wright-Patterson.'
     }
 ]
-
 def html_template(content):
     return f"""<!DOCTYPE html>
 <html>
@@ -232,8 +231,7 @@ def html_template(content):
 
 @app.route('/')
 def index():
-    # losujemy 10 z 20 pytań, bez powtórek
-    session['questions'] = random.sample(questions_pool, 10)
+    session['questions'] = random.sample(questions_pool, min(10, len(questions_pool)))
     session['current'] = 0
     session['score'] = 0
     session['answers'] = []
@@ -250,7 +248,6 @@ def index():
             <a href="/ciekawostki"><button>📚 Ciekawostki o wojnie</button></a>
         </p>
     ''')
-
 @app.route('/quiz', methods=['GET', 'POST'])
 def quiz():
     feedback = ""
@@ -349,6 +346,3 @@ def ciekawostki():
     </p>
     """
     return html_template(content)
-
-if __name__ == '__main__':
-    app.run(debug=True)
