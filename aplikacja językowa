@@ -2,22 +2,23 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass, asdict
+import re
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, List
+from uuid import uuid4
 
-from flask import Flask, request, redirect, url_for, flash, render_template_string
+from flask import Flask, flash, redirect, render_template_string, request, url_for
+from markupsafe import escape
 
-APP_TITLE = "English Trainer – UK Edition"
-DATA_FILE = "words.json"
+
+APP_TITLE = "English Trainer"
+DATA_FILE = Path(os.environ.get("ENGLISH_TRAINER_DATA", Path(__file__).with_name("words.json")))
 
 app = Flask(__name__)
-app.secret_key = "change-me-please"  # zmień na coś własnego
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "english-trainer-local-development-key")
 
-
-# ============================
-# Model słówka + zapis do JSON
-# ============================
 
 @dataclass
 class Word:
@@ -26,24 +27,22 @@ class Word:
     pl: str
     example: str = ""
     notes: str = ""
-    tags: List[str] | None = None
+    tags: List[str] = field(default_factory=list)
     created_at: str = ""
 
     def to_dict(self) -> dict:
-        d = asdict(self)
-        d["tags"] = self.tags or []
-        return d
+        return asdict(self)
 
     @staticmethod
-    def from_dict(d: dict) -> "Word":
+    def from_dict(data: dict) -> "Word":
         return Word(
-            id=d.get("id", ""),
-            en=(d.get("en", "") or "").strip(),
-            pl=(d.get("pl", "") or "").strip(),
-            example=d.get("example", "") or "",
-            notes=d.get("notes", "") or "",
-            tags=d.get("tags", []) or [],
-            created_at=d.get("created_at", "") or "",
+            id=str(data.get("id", "")),
+            en=str(data.get("en", "")).strip(),
+            pl=str(data.get("pl", "")).strip(),
+            example=str(data.get("example", "")),
+            notes=str(data.get("notes", "")),
+            tags=list(data.get("tags") or []),
+            created_at=str(data.get("created_at", "")),
         )
 
 
@@ -51,1332 +50,1111 @@ def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def load_words() -> Dict[str, Word]:
-    if not os.path.exists(DATA_FILE):
-        seed = seed_words()
-        save_words(seed)
-        return seed
-
-    with open(DATA_FILE, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-
-    words: Dict[str, Word] = {}
-    for item in raw.get("words", []):
-        w = Word.from_dict(item)
-        if w.id:
-            if not w.created_at:
-                w.created_at = now_iso()
-            words[w.id] = w
-    return words
+def norm(value: str) -> str:
+    return re.sub(r"[^\w\s]", "", (value or "").casefold()).strip()
 
 
-def save_words(words: Dict[str, Word]) -> None:
-    payload = {"words": [w.to_dict() for w in words.values()]}
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-
-
-def seed_words() -> Dict[str, Word]:
-    # Przykładowa baza startowa – możesz zresetować ręcznie usuwając plik words.json
-    base = [
-        # lesson1
-        ("Hi!", "Cześć!", "Hi! My name is Tom.", ["lesson1", "everyday"]),
-        ("Hello!", "Witaj! / Dzień dobry!", "Hello! Nice to meet you.", ["lesson1", "everyday"]),
-        ("My name is ...", "Mam na imię ...", "My name is Anna.", ["lesson1"]),
-        ("What's your name?", "Jak masz na imię?", "What's your name?", ["lesson1"]),
-        ("Nice to meet you.", "Miło mi cię poznać.", "Nice to meet you.", ["lesson1"]),
-        ("How are you?", "Jak się masz?", "How are you today?", ["lesson1"]),
-        ("I'm fine, thanks.", "W porządku, dzięki.", "I'm fine, thanks.", ["lesson1"]),
-        ("Where are you from?", "Skąd jesteś?", "Where are you from?", ["lesson1"]),
-        ("I'm from Poland.", "Jestem z Polski.", "I'm from Poland.", ["lesson1"]),
-        ("Goodbye!", "Do widzenia!", "Goodbye! See you.", ["lesson1"]),
-
-        # lesson2
-        ("How old are you?", "Ile masz lat?", "How old are you?", ["lesson2"]),
-        ("I'm ... years old.", "Mam ... lat.", "I'm 25 years old.", ["lesson2"]),
-        ("I was born in ...", "Urodziłem/am się w ...", "I was born in 2000.", ["lesson2"]),
-        ("When were you born?", "Kiedy się urodziłeś/urodziłaś?", "When were you born?", ["lesson2"]),
-        ("I'm a student.", "Jestem studentem/studentką.", "I'm a student.", ["lesson2"]),
-        ("I work as a ...", "Pracuję jako ...", "I work as a programmer.", ["lesson2"]),
-        ("What do you do?", "Czym się zajmujesz?", "What do you do?", ["lesson2"]),
-        ("I live in ...", "Mieszkam w ...", "I live in Kraków.", ["lesson2"]),
-        ("That's interesting.", "To ciekawe.", "That's interesting.", ["lesson2"]),
-
-        # Airport module (tags)
-        ("I’d like to check in, please.", "Chciałbym się odprawić.", "", ["airport", "lesson31"]),
-        ("Here is my passport and ticket.", "Oto paszport i bilet.", "", ["airport", "lesson31"]),
-        ("I have a reservation.", "Mam rezerwację.", "", ["airport", "lesson31"]),
-        ("I have luggage to check in.", "Mam bagaż do nadania.", "", ["airport", "lesson31"]),
-        ("I have only hand luggage.", "Mam tylko bagaż podręczny.", "", ["airport", "lesson31"]),
-        ("Can I have a window seat?", "Czy mogę dostać miejsce przy oknie?", "", ["airport", "lesson31"]),
-        ("Can I have an aisle seat?", "Czy mogę dostać miejsce przy przejściu?", "", ["airport", "lesson31"]),
-        ("Is the flight on time?", "Czy lot jest punktualny?", "", ["airport", "lesson31"]),
-    ]
-
-    words: Dict[str, Word] = {}
-    for i, (en, pl, ex, tags) in enumerate(base, start=1):
-        wid = f"w{i:04d}"
-        w = Word(
-            id=wid,
-            en=en,
-            pl=pl,
-            example=ex,
-            notes="",
-            tags=tags,
-            created_at=now_iso(),
-        )
-        words[w.id] = w
-    return words
-
-
-# ============================
-# TTS helpers (🔊)
-# ============================
-
-def tts_btn(text: str, size: str = "sm") -> str:
-    import html as html_escape
-    safe = html_escape.escape(text or "", quote=True)
-    cls = "tts-btn tts-sm" if size == "sm" else "tts-btn"
-    return f'<button type="button" class="{cls}" data-tts="{safe}" title="Odsłuchaj">🔊</button>'
-
-
-# ============================
-# Materiały (teoria/gramatyka)
-# + przymiotniki
-# ============================
-
-MATERIALS = [
-    {
-        "id": "past_to_be",
-        "title": "Czas przeszły – TO BE (was / were)",
-        "sections": [
-            {
-                "title": "Forma twierdząca",
-                "items": [
-                    {"en": "I was", "pl": "ja byłem / ja byłam"},
-                    {"en": "you were", "pl": "ty byłeś / ty byłaś"},
-                    {"en": "he was", "pl": "on był"},
-                    {"en": "she was", "pl": "ona była"},
-                    {"en": "it was", "pl": "to było"},
-                    {"en": "we were", "pl": "my byliśmy / my byłyśmy"},
-                    {"en": "you were", "pl": "wy byliście / wy byłyście"},
-                    {"en": "they were", "pl": "oni byli / one były"},
-                ],
-            },
-            {
-                "title": "Forma przecząca",
-                "items": [
-                    {"en": "I wasn’t", "pl": "ja nie byłem / ja nie byłam"},
-                    {"en": "you weren’t", "pl": "ty nie byłeś / ty nie byłaś"},
-                    {"en": "he wasn’t", "pl": "on nie był"},
-                    {"en": "she wasn’t", "pl": "ona nie była"},
-                    {"en": "it wasn’t", "pl": "to nie było"},
-                    {"en": "we weren’t", "pl": "my nie byliśmy / my nie byłyśmy"},
-                    {"en": "you weren’t", "pl": "wy nie byliście / wy nie byłyście"},
-                    {"en": "they weren’t", "pl": "oni nie byli / one nie były"},
-                ],
-            },
-            {
-                "title": "W skrócie",
-                "items": [
-                    {"en": "was → I / he / she / it", "pl": "was używamy z: I / he / she / it"},
-                    {"en": "were → you / we / they", "pl": "were używamy z: you / we / they"},
-                    {"en": "was not = wasn’t", "pl": "skrócona forma"},
-                    {"en": "were not = weren’t", "pl": "skrócona forma"},
-                ],
-            },
-        ],
-        "examples": [
-            {"en": "I was at home yesterday.", "pl": "Byłem / byłam wczoraj w domu."},
-            {"en": "She wasn’t happy.", "pl": "Ona nie była szczęśliwa."},
-            {"en": "We were tired after work.", "pl": "Byliśmy zmęczeni po pracy."},
-            {"en": "They weren’t at the airport.", "pl": "Oni nie byli na lotnisku."},
-        ],
-    },
-    {
-        "id": "adjectives_pack",
-        "title": "Przymiotniki – zestaw (A1/A2) + wymowa",
-        "sections": [
-            {
-                "title": "Lista",
-                "items": [
-                    {"en": "cheap", "pl": "tani"},
-                    {"en": "expensive", "pl": "drogi"},
-                    {"en": "boring", "pl": "nudny"},
-                    {"en": "bored", "pl": "znudzony"},
-                    {"en": "sad", "pl": "smutny"},
-                    {"en": "famous", "pl": "sławny (wymowa: /ˈfeɪməs/ „fejmes”)"},
-                    {"en": "light", "pl": "jasny / lekki (kontekst)"},
-                    {"en": "awful", "pl": "okropny"},
-                    {"en": "smart", "pl": "mądry / inteligentny"},
-                    {"en": "clever", "pl": "sprytny"},
-                    {"en": "surprised", "pl": "zaskoczony"},
-                    {"en": "heavy", "pl": "ciężki"},
-                    {"en": "dirty", "pl": "brudny (wymowa: „dirdi”)"},
-                    {"en": "clean", "pl": "czysty"},
-                    {"en": "quiet", "pl": "cichy"},
-                    {"en": "modern", "pl": "nowoczesny"},
-                    {"en": "old-fashioned", "pl": "staromodny"},
-                    {"en": "angry", "pl": "zły"},
-                    {"en": "worried", "pl": "zmartwiony"},
-                    {"en": "nervous", "pl": "zdenerwowany"},
-                    {"en": "confident", "pl": "pewny siebie"},
-                    {"en": "excited", "pl": "podekscytowany"},
-                ],
-            }
-        ],
-        "examples": [
-            {"en": "This phone is cheap.", "pl": "Ten telefon jest tani."},
-            {"en": "I’m bored.", "pl": "Nudzę się / jestem znudzony."},
-            {"en": "She is confident.", "pl": "Ona jest pewna siebie."},
-        ],
-    },
-]
-
-
-# ============================
-# LEKCJE – tylko słownictwo
-# ============================
-
-def norm(s: str) -> str:
-    s = (s or "").strip().lower()
-    for ch in ["!", ".", ",", "?", ";", ":", "’", "'", "…", "–", "—"]:
-        s = s.replace(ch, "")
-    s = " ".join(s.split())
-    return s
+def phrase(en: str, pl: str) -> dict:
+    return {"en": en, "pl": pl}
 
 
 LESSONS = [
-    {
-        "id": 1,
-        "title": "Lekcja 1: Podstawowe zwroty – przedstawianie się",
-        "level": "A1",
-        "goal": "Umiesz się przywitać, przedstawić i zapytać o imię.",
-        "required_phrases": [
-            {"en": "Hi!", "pl": "Cześć!"},
-            {"en": "Hello!", "pl": "Witaj! / Dzień dobry!"},
-            {"en": "My name is ...", "pl": "Mam na imię ..."},
-            {"en": "What's your name?", "pl": "Jak masz na imię?"},
-            {"en": "Nice to meet you.", "pl": "Miło mi cię poznać."},
-            {"en": "How are you?", "pl": "Jak się masz?"},
-            {"en": "I'm fine, thanks.", "pl": "W porządku, dzięki."},
-            {"en": "Where are you from?", "pl": "Skąd jesteś?"},
-            {"en": "I'm from Poland.", "pl": "Jestem z Polski."},
-            {"en": "Goodbye!", "pl": "Do widzenia!"},
-        ],
-    },
-    {
-        "id": 2,
-        "title": "Lekcja 2: Ile masz lat? – wiek, data urodzenia i zajęcie",
-        "level": "A1/A2",
-        "goal": "Umiesz zapytać o wiek, powiedzieć ile masz lat i czym się zajmujesz.",
-        "required_phrases": [
-            {"en": "How old are you?", "pl": "Ile masz lat?"},
-            {"en": "I'm ... years old.", "pl": "Mam ... lat."},
-            {"en": "When were you born?", "pl": "Kiedy się urodziłeś/urodziłaś?"},
-            {"en": "I was born in ...", "pl": "Urodziłem/am się w ..."},
-            {"en": "What do you do?", "pl": "Czym się zajmujesz?"},
-            {"en": "I'm a student.", "pl": "Jestem studentem/studentką."},
-            {"en": "I work as a ...", "pl": "Pracuję jako ..."},
-            {"en": "I live in ...", "pl": "Mieszkam w ..."},
-            {"en": "That's interesting.", "pl": "To ciekawe."},
-        ],
-    },
-    {
-        "id": 21,
-        "title": "Lekcja 2.1: Opis o sobie – Dominik (A1/A2)",
-        "level": "A1/A2",
-        "goal": "Umiesz krótko opisać siebie: imię, wiek, zawód, miejsce i wygląd.",
-        "required_phrases": [
-            {"en": "My name is Dominik.", "pl": "Mam na imię Dominik."},
-            {"en": "I am 22 years old.", "pl": "Mam 22 lata."},
-            {"en": "I am a software tester in IT.", "pl": "Jestem testerem oprogramowania w IT."},
-            {"en": "I live in Bzinica Stara in Poland.", "pl": "Mieszkam w Bzinicy Starej w Polsce."},
-            {"en": "I have got blue eyes.", "pl": "Mam niebieskie oczy."},
-            {"en": "I have got brown hair.", "pl": "Mam brązowe włosy."},
-            {"en": "I have got a light face.", "pl": "Mam jasną twarz."},
-            {"en": "I have got a short beard.", "pl": "Mam krótką brodę."},
-            {"en": "I wear glasses.", "pl": "Noszę okulary."},
-        ],
-    },
-    {
-        "id": 31,
-        "title": "Lekcja 3.1: Lotnisko – Odprawa / Check-in (Pasażer)",
-        "level": "A1/A2",
-        "goal": "Umiesz przejść odprawę: check-in, dokumenty, bagaż, miejsce i punktualność.",
-        "required_phrases": [
-            {"en": "I’d like to check in, please.", "pl": "Chciałbym się odprawić."},
-            {"en": "Here is my passport and ticket.", "pl": "Oto paszport i bilet."},
-            {"en": "I have a reservation.", "pl": "Mam rezerwację."},
-            {"en": "I have luggage to check in.", "pl": "Mam bagaż do nadania."},
-            {"en": "I have only hand luggage.", "pl": "Mam tylko bagaż podręczny."},
-            {"en": "Can I have a window seat?", "pl": "Czy mogę dostać miejsce przy oknie?"},
-            {"en": "Can I have an aisle seat?", "pl": "Czy mogę dostać miejsce przy przejściu?"},
-            {"en": "Is the flight on time?", "pl": "Czy lot jest punktualny?"},
-        ],
-    },
-    {
-        "id": 32,
-        "title": "Lekcja 3.2: Lotnisko – Odprawa / Check-in (Obsługa)",
-        "level": "A1/A2",
-        "goal": "Rozumiesz pytania obsługi podczas odprawy.",
-        "required_phrases": [
-            {"en": "May I see your passport?", "pl": "Czy mogę zobaczyć paszport?"},
-            {"en": "How many bags are you checking in?", "pl": "Ile bagaży nadajesz?"},
-            {"en": "Here is your boarding pass.", "pl": "Oto karta pokładowa."},
-        ],
-    },
-    {
-        "id": 33,
-        "title": "Lekcja 3.3: Lotnisko – Bagaż (Baggage)",
-        "level": "A1/A2",
-        "goal": "Znasz podstawowe słownictwo dotyczące bagażu na lotnisku.",
-        "required_phrases": [
-            {"en": "checked baggage", "pl": "bagaż rejestrowany"},
-            {"en": "carry-on baggage", "pl": "bagaż podręczny"},
-            {"en": "hand luggage", "pl": "bagaż podręczny"},
-            {"en": "overweight baggage", "pl": "bagaż z nadwagą"},
-            {"en": "fragile", "pl": "delikatny"},
-            {"en": "lost luggage", "pl": "zagubiony bagaż"},
-        ],
-    },
-    {
-        "id": 34,
-        "title": "Lekcja 3.4: Lotnisko – Kontrola bezpieczeństwa (Security)",
-        "level": "A1/A2",
-        "goal": "Rozumiesz polecenia i pytania obsługi podczas kontroli bezpieczeństwa.",
-        "required_phrases": [
-            {"en": "Please remove your shoes.", "pl": "Proszę zdjąć buty."},
-            {"en": "Take your laptop out of the bag.", "pl": "Wyjmij laptopa z torby."},
-            {"en": "Put your liquids in the tray.", "pl": "Włóż płyny do pojemnika."},
-            {"en": "Walk through the scanner.", "pl": "Przejdź przez skaner."},
-            {"en": "Do you have any liquids?", "pl": "Czy masz jakieś płyny?"},
-        ],
-    },
-    {
-        "id": 35,
-        "title": "Lekcja 3.5: Lotnisko – Kontrola paszportowa (Passport Control)",
-        "level": "A1/A2",
-        "goal": "Potrafisz odpowiedzieć: cel podróży, czas pobytu, miejsce zakwaterowania.",
-        "required_phrases": [
-            {"en": "What is the purpose of your visit?", "pl": "Jaki jest cel wizyty?"},
-            {"en": "Tourism", "pl": "Turystyka"},
-            {"en": "Business", "pl": "Biznes"},
-            {"en": "Work", "pl": "Praca"},
-            {"en": "How long are you staying?", "pl": "Jak długo zostajesz?"},
-            {"en": "Where will you stay?", "pl": "Gdzie będziesz mieszkać?"},
-        ],
-    },
-    {
-        "id": 36,
-        "title": "Lekcja 3.6: Lotnisko – Informacje o locie (Flight Information)",
-        "level": "A1/A2",
-        "goal": "Rozumiesz: departure/arrival, gate, boarding, delayed/cancelled oraz pytania o bramkę/boarding.",
-        "required_phrases": [
-            {"en": "departure", "pl": "odlot"},
-            {"en": "arrival", "pl": "przylot"},
-            {"en": "gate", "pl": "bramka"},
-            {"en": "boarding", "pl": "wejście na pokład"},
-            {"en": "delayed", "pl": "opóźniony"},
-            {"en": "cancelled", "pl": "odwołany"},
-            {"en": "What gate is the flight to London?", "pl": "Z której bramki jest lot do Londynu?"},
-            {"en": "Is boarding starting?", "pl": "Czy zaczyna się boarding?"},
-        ],
-    },
-    {
-        "id": 37,
-        "title": "Lekcja 3.7: Na pokładzie samolotu (On board)",
-        "level": "A1/A2",
-        "goal": "Umiesz znaleźć miejsce, zapytać o torbę, wodę, miejsce zajęte i rozumiesz polecenie o pasach.",
-        "required_phrases": [
-            {"en": "Where is my seat?", "pl": "Gdzie jest moje miejsce?"},
-            {"en": "Can I put my bag here?", "pl": "Czy mogę tu położyć torbę?"},
-            {"en": "Could I have some water, please?", "pl": "Czy mogę prosić o wodę?"},
-            {"en": "Is this seat taken?", "pl": "Czy to miejsce jest zajęte?"},
-            {"en": "Fasten your seatbelt.", "pl": "Zapnij pasy."},
-        ],
-    },
-    {
-        "id": 38,
-        "title": "Lekcja 3.8: Po przylocie – Bagaż, cło i ogólne zwroty",
-        "level": "A1/A2",
-        "goal": "Umiesz zapytać o odbiór bagażu, zgłosić brak bagażu, przejść cło i używać uniwersalnych zwrotów.",
-        "required_phrases": [
-            {"en": "Where is baggage claim?", "pl": "Gdzie jest odbiór bagażu?"},
-            {"en": "My luggage didn’t arrive.", "pl": "Mój bagaż nie dotarł."},
-            {"en": "Nothing to declare.", "pl": "Nic do oclenia."},
-            {"en": "Something to declare.", "pl": "Mam coś do oclenia."},
-            {"en": "Excuse me.", "pl": "Przepraszam."},
-            {"en": "Thank you.", "pl": "Dziękuję."},
-            {"en": "Thanks a lot.", "pl": "Dziękuję bardzo."},
-            {"en": "Could you help me?", "pl": "Czy możesz mi pomóc?"},
-            {"en": "I don’t understand.", "pl": "Nie rozumiem."},
-            {"en": "Could you repeat, please?", "pl": "Czy możesz powtórzyć?"},
-        ],
-    },
-    {
-        "id": 40,
-        "title": "Lekcja 4: Kawiarnia – Zamawianie kawy",
-        "level": "A1",
-        "goal": "Potrafisz zamówić kawę w kawiarni: wybrać rodzaj, dodatki, rozmiar i zapłacić.",
-        "required_phrases": [
-            {"en": "What coffee would you like?", "pl": "Jaką kawę chciałbyś/chciałabyś?"},
-            {"en": "I would like a coffee, please.", "pl": "Poproszę kawę."},
-            {"en": "cappuccino", "pl": "cappuccino"},
-            {"en": "espresso", "pl": "espresso"},
-            {"en": "iced coffee", "pl": "kawa mrożona"},
-            {"en": "Could I have some milk in my coffee, please?", "pl": "Poproszę mleko do kawy."},
-            {"en": "Would you like any sugar?", "pl": "Czy chciałbyś/chciałabyś cukier?"},
-            {"en": "Without sugar.", "pl": "Bez cukru."},
-            {"en": "What size would you like?", "pl": "Jaki rozmiar?"},
-            {"en": "Medium, please.", "pl": "Średni, proszę."},
-            {"en": "I’ll pay by card.", "pl": "Zapłacę kartą."},
-        ],
-    },
-    {
-        "id": 41,
-        "title": "Lekcja 4.1: Restauracja – Zamawianie jedzenia",
-        "level": "A1/A2",
-        "goal": "Potrafisz zamówić jedzenie: poprosić o menu, złożyć zamówienie, poprosić o rachunek i zapłacić.",
-        "required_phrases": [
-            {"en": "A table for one / two, please.", "pl": "Stolik dla jednej osoby / dwóch osób, proszę."},
-            {"en": "Could we have the menu, please?", "pl": "Czy możemy prosić o menu?"},
-            {"en": "I would like to order, please.", "pl": "Chciałbym/chciałabym złożyć zamówienie."},
-            {"en": "I’ll have the chicken, please.", "pl": "Poproszę kurczaka."},
-            {"en": "Can I have a glass of water, please?", "pl": "Czy mogę prosić o szklankę wody?"},
-            {"en": "No onions, please.", "pl": "Bez cebuli, proszę."},
-            {"en": "Could I get the bill, please?", "pl": "Czy mogę prosić o rachunek?"},
-            {"en": "Can I pay by card?", "pl": "Czy mogę zapłacić kartą?"},
-            {"en": "Thank you. It was delicious.", "pl": "Dziękuję. Było pyszne."},
-        ],
-    },
-    {
-        "id": 5,
-        "title": "Lekcja 5: Angielski w Londynie – kupowanie biletu",
-        "level": "A1/A2",
-        "goal": "Umiesz zapytać, gdzie kupić bilet, ile kosztuje i czy są zniżki / przewodnik audio.",
-        "required_phrases": [
-            {"en": "Where can I buy a ticket?", "pl": "Gdzie mogę kupić bilet?"},
+    (1, "Przedstawianie się", "A1", "Przywitaj się, przedstaw i zapytaj o imię.", [
+        ("Hi!", "Cześć!"), ("Hello!", "Witaj! / Dzień dobry!"), ("My name is ...", "Mam na imię ..."),
+        ("What's your name?", "Jak masz na imię?"), ("Nice to meet you.", "Miło mi cię poznać."),
+        ("How are you?", "Jak się masz?"), ("I'm fine, thanks.", "W porządku, dzięki."),
+        ("Where are you from?", "Skąd jesteś?"), ("I'm from Poland.", "Jestem z Polski."), ("Goodbye!", "Do widzenia!"),
+    ]),
+    (2, "Wiek, urodziny i zajęcie", "A1/A2", "Opowiedz o wieku, miejscu zamieszkania i pracy.", [
+        ("How old are you?", "Ile masz lat?"), ("I'm ... years old.", "Mam ... lat."),
+        ("When were you born?", "Kiedy się urodziłeś/urodziłaś?"), ("I was born in ...", "Urodziłem/am się w ..."),
+        ("What do you do?", "Czym się zajmujesz?"), ("I'm a student.", "Jestem studentem/studentką."),
+        ("I work as a ...", "Pracuję jako ..."), ("I live in ...", "Mieszkam w ..."), ("That's interesting.", "To ciekawe."),
+    ]),
+    (21, "Opis o sobie – Dominik", "A1/A2", "Krótko opisz siebie, pracę i wygląd.", [
+        ("My name is Dominik.", "Mam na imię Dominik."), ("I am 22 years old.", "Mam 22 lata."),
+        ("I am a software tester in IT.", "Jestem testerem oprogramowania w IT."),
+        ("I live in Bzinica Stara in Poland.", "Mieszkam w Bzinicy Starej w Polsce."),
+        ("I have got blue eyes.", "Mam niebieskie oczy."), ("I have got brown hair.", "Mam brązowe włosy."),
+        ("I have got a light face.", "Mam jasną twarz."), ("I have got a short beard.", "Mam krótką brodę."),
+        ("I wear glasses.", "Noszę okulary."),
+    ]),
+    (31, "Lotnisko – odprawa pasażera", "A1/A2", "Przejdź odprawę, nadaj bagaż i wybierz miejsce.", [
+        ("I’d like to check in, please.", "Chciałbym się odprawić."), ("Here is my passport and ticket.", "Oto paszport i bilet."),
+        ("I have a reservation.", "Mam rezerwację."), ("I have luggage to check in.", "Mam bagaż do nadania."),
+        ("I have only hand luggage.", "Mam tylko bagaż podręczny."), ("Can I have a window seat?", "Czy mogę dostać miejsce przy oknie?"),
+        ("Can I have an aisle seat?", "Czy mogę dostać miejsce przy przejściu?"), ("Is the flight on time?", "Czy lot jest punktualny?"),
+    ]),
+    (32, "Lotnisko – obsługa odprawy", "A1/A2", "Rozumiej pytania personelu przy odprawie.", [
+        ("May I see your passport?", "Czy mogę zobaczyć paszport?"),
+        ("How many bags are you checking in?", "Ile bagaży nadajesz?"), ("Here is your boarding pass.", "Oto karta pokładowa."),
+    ]),
+    (33, "Lotnisko – bagaż", "A1/A2", "Poznaj najważniejsze rodzaje i problemy z bagażem.", [
+        ("checked baggage", "bagaż rejestrowany"), ("carry-on baggage", "bagaż podręczny"), ("hand luggage", "bagaż podręczny"),
+        ("overweight baggage", "bagaż z nadwagą"), ("fragile", "delikatny"), ("lost luggage", "zagubiony bagaż"),
+    ]),
+    (34, "Kontrola bezpieczeństwa", "A1/A2", "Zrozum polecenia podczas kontroli.", [
+        ("Please remove your shoes.", "Proszę zdjąć buty."), ("Take your laptop out of the bag.", "Wyjmij laptopa z torby."),
+        ("Put your liquids in the tray.", "Włóż płyny do pojemnika."), ("Walk through the scanner.", "Przejdź przez skaner."),
+        ("Do you have any liquids?", "Czy masz jakieś płyny?"),
+    ]),
+    (35, "Kontrola paszportowa", "A1/A2", "Odpowiedz o celu i długości pobytu.", [
+        ("What is the purpose of your visit?", "Jaki jest cel wizyty?"), ("Tourism", "Turystyka"), ("Business", "Biznes"),
+        ("Work", "Praca"), ("How long are you staying?", "Jak długo zostajesz?"), ("Where will you stay?", "Gdzie będziesz mieszkać?"),
+    ]),
+    (36, "Informacje o locie", "A1/A2", "Sprawdź bramkę, boarding i status lotu.", [
+        ("departure", "odlot"), ("arrival", "przylot"), ("gate", "bramka"), ("boarding", "wejście na pokład"),
+        ("delayed", "opóźniony"), ("cancelled", "odwołany"),
+        ("What gate is the flight to London?", "Z której bramki jest lot do Londynu?"), ("Is boarding starting?", "Czy zaczyna się boarding?"),
+    ]),
+    (37, "Na pokładzie samolotu", "A1/A2", "Znajdź miejsce i poproś o pomoc na pokładzie.", [
+        ("Where is my seat?", "Gdzie jest moje miejsce?"), ("Can I put my bag here?", "Czy mogę tu położyć torbę?"),
+        ("Could I have some water, please?", "Czy mogę prosić o wodę?"), ("Is this seat taken?", "Czy to miejsce jest zajęte?"),
+        ("Fasten your seatbelt.", "Zapnij pasy."),
+    ]),
+    (38, "Po przylocie", "A1/A2", "Odbierz bagaż, przejdź cło i poproś o pomoc.", [
+        ("Where is baggage claim?", "Gdzie jest odbiór bagażu?"), ("My luggage didn’t arrive.", "Mój bagaż nie dotarł."),
+        ("Nothing to declare.", "Nic do oclenia."), ("Something to declare.", "Mam coś do oclenia."), ("Excuse me.", "Przepraszam."),
+        ("Thank you.", "Dziękuję."), ("Thanks a lot.", "Dziękuję bardzo."), ("Could you help me?", "Czy możesz mi pomóc?"),
+        ("I don’t understand.", "Nie rozumiem."), ("Could you repeat, please?", "Czy możesz powtórzyć?"),
+    ]),
+    (40, "Kawiarnia", "A1", "Zamów kawę, dodatki i zapłać.", [
+        ("What coffee would you like?", "Jaką kawę chciałbyś/chciałabyś?"), ("I would like a coffee, please.", "Poproszę kawę."),
+        ("cappuccino", "cappuccino"), ("espresso", "espresso"), ("iced coffee", "kawa mrożona"),
+        ("Could I have some milk in my coffee, please?", "Poproszę mleko do kawy."), ("Would you like any sugar?", "Czy chciałbyś/chciałabyś cukier?"),
+        ("Without sugar.", "Bez cukru."), ("What size would you like?", "Jaki rozmiar?"), ("Medium, please.", "Średni, proszę."),
+        ("I’ll pay by card.", "Zapłacę kartą."),
+    ]),
+    (41, "Restauracja", "A1/A2", "Zamów posiłek i poproś o rachunek.", [
+        ("A table for one / two, please.", "Stolik dla jednej osoby / dwóch osób, proszę."), ("Could we have the menu, please?", "Czy możemy prosić o menu?"),
+        ("I would like to order, please.", "Chciałbym/chciałabym złożyć zamówienie."), ("I’ll have the chicken, please.", "Poproszę kurczaka."),
+        ("Can I have a glass of water, please?", "Czy mogę prosić o szklankę wody?"), ("No onions, please.", "Bez cebuli, proszę."),
+        ("Could I get the bill, please?", "Czy mogę prosić o rachunek?"), ("Can I pay by card?", "Czy mogę zapłacić kartą?"),
+        ("Thank you. It was delicious.", "Dziękuję. Było pyszne."),
+    ]),
+    (5, "Londyn – kupowanie biletu", "A1/A2", "Zapytaj o bilet, zniżkę i audioprzewodnik.", [
+        ("Where can I buy a ticket?", "Gdzie mogę kupić bilet?"), ("Is the audio guide included?", "Czy przewodnik audio jest wliczony?"),
+        ("Is there a discount for students?", "Czy jest zniżka dla studentów?"), ("Is there a discount for seniors?", "Czy jest zniżka dla seniorów?"),
+        ("Can I buy a ticket online?", "Czy mogę kupić bilet online?"),
+    ]),
+    (6, "Kino i koncert", "A1/A2", "Kup bilety i wybierz godzinę oraz miejsca.", [
+        ("How can I help you?", "Jak mogę pomóc?"), ("I'd like two tickets for the film on screen 3, please.", "Poproszę dwa bilety na film na sali 3."),
+        ("Which time would you like?", "O której godzinie chciałby Pan/chciałaby Pani?"), ("Six-thirty (6:30), please.", "Na szóstą trzydzieści (6:30), proszę."),
+        ("I'm sorry, the 6:30 film is sold out.", "Przepraszam, film o 6:30 jest wyprzedany."),
+        ("But there are some tickets available for the nine-thirty film.", "Ale są dostępne bilety na film o 9:30."),
+        ("That's OK.", "W porządku. / Zgadzam się."), ("I'd like four tickets for a concert, please.", "Poproszę cztery bilety na koncert."),
+        ("Where do you want to sit?", "Gdzie chcecie usiąść?"), ("Near the front, please.", "Z przodu, proszę."), ("Let me see.", "Już sprawdzam."),
+        ("Do you want to sit together?", "Chcecie usiąść razem?"), ("I'm sorry, there aren't any more seats together.", "Przepraszam, nie ma już miejsc obok siebie."),
+        ("How much is a ticket?", "Ile kosztuje bilet?"), ("It's thirty pounds for a ticket.", "Bilet kosztuje trzydzieści funtów."),
+        ("So four tickets – that's one hundred and twenty pounds.", "Więc cztery bilety – to sto dwadzieścia funtów."),
+    ]),
+    (7, "Pogoda", "A1/A2", "Opisz temperaturę, wiatr, deszcz, mgłę i śnieg.", [
+        ("sunny", "słonecznie"), ("cloudy", "pochmurno"), ("overcast", "całkowicie pochmurno"), ("rainy", "deszczowo"),
+        ("snowy", "śnieżnie"), ("windy", "wietrznie"), ("stormy", "burzowo"), ("hot", "gorąco"), ("warm", "ciepło"),
+        ("cool", "chłodno"), ("freezing", "mroźno"), ("It's cold outside.", "Na zewnątrz jest zimno."),
+        ("It's very hot today.", "Dziś jest bardzo gorąco."), ("strong wind", "silny wiatr"), ("gentle wind", "lekki wiatr"),
+        ("breeze", "bryza"), ("The wind is blowing.", "Wieje wiatr."), ("It's windy today.", "Dziś jest wietrznie."),
+        ("It's raining.", "Pada deszcz."), ("It's pouring.", "Leje deszcz."), ("light rain", "lekki deszcz"), ("heavy rain", "ulewa"),
+        ("thunder", "grzmot"), ("lightning", "piorun"), ("There is a storm.", "Jest burza."), ("fog", "mgła"), ("mist", "lekka mgła"),
+        ("It's foggy.", "Jest mgliście."), ("I can’t see clearly.", "Nie widzę wyraźnie."), ("Visibility is poor.", "Widoczność jest słaba."),
+        ("snow", "śnieg"), ("It's snowing.", "Pada śnieg."), ("frost", "mróz"), ("icy", "oblodzony"), ("The road is icy.", "Droga jest oblodzona."),
+    ]),
+    (71, "Pogoda – opinie i prognozy", "A1/A2", "Wyraź opinię i opisz prognozę.", [
+        ("It looks like rain.", "Wygląda na deszcz."), ("The weather is nice today.", "Dziś jest ładna pogoda."),
+        ("The weather is awful.", "Pogoda jest okropna."), ("I like this weather.", "Lubię taką pogodę."),
+        ("I don’t like cold weather.", "Nie lubię zimnej pogody."),
+    ]),
+]
+LESSONS = [{"id": i, "title": title, "level": level, "goal": goal, "required_phrases": [phrase(*p) for p in phrases]}
+           for i, title, level, goal, phrases in LESSONS]
 
-            {"en": "Is the audio guide included?", "pl": "Czy przewodnik audio jest wliczony?"},
-            {"en": "Is there a discount for students?", "pl": "Czy jest zniżka dla studentów?"},
-            {"en": "Is there a discount for seniors?", "pl": "Czy jest zniżka dla seniorów?"},
-            {"en": "Can I buy a ticket online?", "pl": "Czy mogę kupić bilet online?"},
-        ],
-    },
-
-    # ✅ NOWA LEKCJA 6 (poprawnie wstawiona)
-    {
-        "id": 6,
-        "title": "Lekcja 6: Kupowanie biletów – kino i koncert",
-        "level": "A1/A2",
-        "goal": "Umiesz kupić bilety (kino/koncert): liczba biletów, godzina, miejsca, dostępność i cena.",
-        "required_phrases": [
-            {"en": "How can I help you?", "pl": "Jak mogę pomóc?"},
-            {"en": "I'd like two tickets for the film on screen 3, please.", "pl": "Poproszę dwa bilety na film na sali 3."},
-            {"en": "Which time would you like?", "pl": "O której godzinie chciałby Pan/chciałaby Pani?"},
-            {"en": "Six-thirty (6:30), please.", "pl": "Na szóstą trzydzieści (6:30), proszę."},
-            {"en": "I'm sorry, the 6:30 film is sold out.", "pl": "Przepraszam, film o 6:30 jest wyprzedany."},
-            {"en": "But there are some tickets available for the nine-thirty film.", "pl": "Ale są dostępne bilety na film o 9:30."},
-            {"en": "That's OK.", "pl": "W porządku. / Zgadzam się."},
-            {"en": "I'd like four tickets for a concert, please.", "pl": "Poproszę cztery bilety na koncert."},
-            {"en": "Where do you want to sit?", "pl": "Gdzie chcecie usiąść?"},
-            {"en": "Near the front, please.", "pl": "Z przodu, proszę."},
-            {"en": "Let me see.", "pl": "Już sprawdzam."},
-            {"en": "Do you want to sit together?", "pl": "Chcecie usiąść razem?"},
-            {"en": "I'm sorry, there aren't any more seats together.", "pl": "Przepraszam, nie ma już miejsc obok siebie."},
-            {"en": "How much is a ticket?", "pl": "Ile kosztuje bilet?"},
-            {"en": "It's thirty pounds for a ticket.", "pl": "Bilet kosztuje trzydzieści funtów."},
-            {"en": "So four tickets – that's one hundred and twenty pounds.", "pl": "Więc cztery bilety – to sto dwadzieścia funtów."},
-        ],
-    },
-{
-    "id": 7,
-    "title": "Lekcja 7: Pogoda – opisywanie warunków atmosferycznych",
-    "level": "A1/A2",
-    "goal": "Umiesz opisać pogodę: zachmurzenie, temperaturę, wiatr, deszcz, burzę, mgłę i śnieg.",
-    "required_phrases": [
-        {"en": "sunny", "pl": "słonecznie"},
-        {"en": "cloudy", "pl": "pochmurno"},
-        {"en": "overcast", "pl": "całkowicie pochmurno"},
-        {"en": "rainy", "pl": "deszczowo"},
-        {"en": "snowy", "pl": "śnieżnie"},
-        {"en": "windy", "pl": "wietrznie"},
-        {"en": "stormy", "pl": "burzowo"},
-
-        {"en": "hot", "pl": "gorąco"},
-        {"en": "warm", "pl": "ciepło"},
-        {"en": "cool", "pl": "chłodno"},
-        {"en": "freezing", "pl": "mroźno"},
-
-        {"en": "It's cold outside.", "pl": "Na zewnątrz jest zimno."},
-        {"en": "It's very hot today.", "pl": "Dziś jest bardzo gorąco."},
-
-        {"en": "strong wind", "pl": "silny wiatr"},
-        {"en": "gentle wind", "pl": "lekki wiatr"},
-        {"en": "breeze", "pl": "bryza"},
-        {"en": "The wind is blowing.", "pl": "Wieje wiatr."},
-        {"en": "It's windy today.", "pl": "Dziś jest wietrznie."},
-
-        {"en": "It's raining.", "pl": "Pada deszcz."},
-        {"en": "It's pouring.", "pl": "Leje deszcz."},
-        {"en": "light rain", "pl": "lekki deszcz"},
-        {"en": "heavy rain", "pl": "ulewa"},
-
-        {"en": "thunder", "pl": "grzmot"},
-        {"en": "lightning", "pl": "piorun"},
-        {"en": "There is a storm.", "pl": "Jest burza."},
-
-        {"en": "fog", "pl": "mgła"},
-        {"en": "mist", "pl": "lekka mgła"},
-        {"en": "It's foggy.", "pl": "Jest mgliście."},
-        {"en": "I can’t see clearly.", "pl": "Nie widzę wyraźnie."},
-        {"en": "Visibility is poor.", "pl": "Widoczność jest słaba."},
-
-        {"en": "snow", "pl": "śnieg"},
-        {"en": "It's snowing.", "pl": "Pada śnieg."},
-        {"en": "frost", "pl": "mróz"},
-        {"en": "icy", "pl": "oblodzony"},
-        {"en": "The road is icy.", "pl": "Droga jest oblodzona."},
-    ],
-},
-{
-    "id": 71,
-    "title": "Lekcja 7.1: Pogoda – opinie i prognozy",
-    "level": "A1/A2",
-    "goal": "Umiesz wyrazić opinię o pogodzie oraz powiedzieć, jaka będzie lub jak wygląda sytuacja pogodowa.",
-    "required_phrases": [
-        {"en": "It looks like rain.", "pl": "Wygląda na deszcz."},
-        {"en": "The weather is nice today.", "pl": "Dziś jest ładna pogoda."},
-        {"en": "The weather is awful.", "pl": "Pogoda jest okropna."},
-        {"en": "I like this weather.", "pl": "Lubię taką pogodę."},
-        {"en": "I don’t like cold weather.", "pl": "Nie lubię zimnej pogody."},
-    ],
-},
+# Czytelny program kursu. Zachowujemy zwroty ze starszej wersji, ale układamy je
+# w krótsze lekcje, moduły i poziomy. Tekstowe dane modułu są również używane
+# do zbudowania widoku postępu na stronie /lessons.
+_OLD_LESSONS = {lesson["id"]: lesson for lesson in LESSONS}
 
 
+def old_phrases(lesson_id: int, start: int | None = None, stop: int | None = None) -> list:
+    return _OLD_LESSONS[lesson_id]["required_phrases"][start:stop]
+
+
+def new_phrases(*items: tuple[str, str]) -> list:
+    return [phrase(en, pl) for en, pl in items]
+
+
+COURSE_MODULES = [
+    {"id": "people", "number": 1, "level": "A1", "title": "Poznawanie ludzi", "description": "Od pierwszego powitania do swobodnego opisu siebie."},
+    {"id": "daily", "number": 2, "level": "A1", "title": "Codzienne sytuacje", "description": "Praktyczny angielski w mieście, sklepie i restauracji."},
+    {"id": "weather", "number": 3, "level": "A1", "title": "Pogoda", "description": "Opisuj warunki, temperaturę i prognozę pogody."},
+    {"id": "airport", "number": 4, "level": "A2", "title": "Lotnisko", "description": "Cała podróż lotnicza od rezerwacji do odbioru bagażu."},
+    {"id": "abroad", "number": 5, "level": "A2", "title": "Pobyt za granicą", "description": "Hotel, zwiedzanie oraz pomoc w nieprzewidzianych sytuacjach."},
+    {"id": "delivery", "number": 6, "level": "A2", "title": "Zamawianie jedzenia i dostawa", "description": "Zamów jedzenie, przekaż instrukcje kurierowi i rozwiąż problemy z dostawą."},
+    {"id": "conversation", "number": 7, "level": "A2/B1", "title": "Swobodna rozmowa", "description": "Rozwijaj rozmowę, opowiadaj o sobie i naturalnie wyrażaj własne zdanie."},
+    {"id": "work", "number": 8, "level": "A2/B1", "title": "Praca", "description": "Przygotuj dokumenty aplikacyjne i swobodnie rozmawiaj o doświadczeniu zawodowym."},
 ]
 
 
-def lesson_missing_phrases(words_dict: dict, lesson: dict) -> list:
-    """Sprawdza, których zwrotów z lekcji brakuje w słowniku."""
-    words = list(words_dict.values())
-    missing = []
-    for rp in lesson["required_phrases"]:
-        found = any(
-            norm(w.en) == norm(rp["en"]) and norm(w.pl) == norm(rp["pl"])
-            for w in words
-        )
-        if not found:
-            missing.append(rp)
-    return missing
-
-
-# ============================
-# UI (HTML/CSS – paleta UK)
-# ============================
-
-BASE_HTML = """
-<!doctype html>
-<html lang="pl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>{{title}}</title>
-  <style>
-    body{
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;
-      background: radial-gradient(circle at top left,#1f2937 0,#020617 40%,#020617 100%);
-      color:#e5e7eb;
-      margin:0;
-    }
-    a{color:#bfdbfe; text-decoration:none}
-    a:hover{text-decoration:underline}
-
-    .top{
-      display:flex; gap:12px; align-items:center; justify-content:space-between;
-      padding:14px 18px;
-      background:linear-gradient(90deg,#0b1120,#111827);
-      border-bottom:2px solid rgba(248,250,252,0.12);
-      position:sticky; top:0;
-      backdrop-filter: blur(10px);
-      z-index:40;
-    }
-    .brand{
-      display:flex; align-items:center; gap:10px;
-      font-weight:800; letter-spacing:.03em; font-size:18px;
-    }
-    .flag{
-      width:26px; height:18px; border-radius:3px;
-      background:
-        linear-gradient(180deg,#00247d 0,#00163f 100%);
-      box-shadow:0 0 0 1px rgba(15,23,42,0.9);
-      position:relative; overflow:hidden;
-    }
-    .flag:before,
-    .flag:after{
-      content:""; position:absolute; inset:0;
-      background:
-        linear-gradient(90deg,transparent 45%,#fff 45%,#fff 55%,transparent 55%),
-        linear-gradient(180deg,transparent 45%,#fff 45%,#fff 55%,transparent 55%);
-      mix-blend-mode:screen;
-    }
-    .flag:after{
-      background:
-        linear-gradient(63deg,transparent 45%,#c8102e 45%,#c8102e 55%,transparent 55%),
-        linear-gradient(117deg,transparent 45%,#c8102e 45%,#c8102e 55%,transparent 55%);
-      opacity:.9;
+def course_lesson(lesson_id: int, module: str, order: int, title: str, goal: str, phrases: list) -> dict:
+    module_data = next(item for item in COURSE_MODULES if item["id"] == module)
+    return {
+        "id": lesson_id, "module": module, "module_number": module_data["number"],
+        "order": order, "title": title, "level": module_data["level"], "goal": goal,
+        "required_phrases": phrases,
     }
 
-    .nav a{
-      margin-right:10px; padding:8px 11px; border-radius:999px;
-      background:rgba(15,23,42,0.9);
-      border:1px solid rgba(148,163,184,0.35);
-      font-size:13px;
-      box-shadow:0 6px 16px rgba(15,23,42,0.6);
-    }
-    .nav a:hover{
-      background:rgba(30,64,175,0.85);
-      border-color:rgba(248,250,252,0.9);
-      text-decoration:none;
-    }
 
-    .wrap{max-width:1100px; margin:0 auto; padding:18px}
-    .grid{display:grid; grid-template-columns: 1.15fr 0.85fr; gap:16px}
-    @media(max-width:900px){ .grid{grid-template-columns:1fr} }
+LESSONS = [
+    # A1 · Moduł 1 — Poznawanie ludzi
+    course_lesson(101, "people", 1, "Powitania i pożegnania", "Przywitaj się i naturalnie zakończ rozmowę.",
+                  old_phrases(1, 0, 2) + old_phrases(1, 9, 10) + new_phrases(
+                      ("Good morning!", "Dzień dobry!"), ("Good evening!", "Dobry wieczór!"),
+                      ("See you later!", "Do zobaczenia później!"), ("Have a nice day!", "Miłego dnia!"))),
+    course_lesson(102, "people", 2, "Przedstawianie się", "Przedstaw się i rozpocznij krótką rozmowę.",
+                  old_phrases(1, 2, 7)),
+    course_lesson(103, "people", 3, "Wiek i data urodzenia", "Zapytaj o wiek i powiedz, kiedy się urodziłeś.",
+                  old_phrases(2, 0, 4)),
+    course_lesson(104, "people", 4, "Miejsce zamieszkania", "Powiedz, skąd jesteś i gdzie mieszkasz.",
+                  old_phrases(1, 7, 9) + old_phrases(2, 7, 8) + new_phrases(
+                      ("Where do you live?", "Gdzie mieszkasz?"),
+                      ("fields", "pola"),
+                      ("near", "blisko"),
+                      ("quiet", "spokojny / cichy"),
+                      ("I live near the city centre.", "Mieszkam blisko centrum miasta."),
+                      ("There are fields near my house.", "W pobliżu mojego domu są pola."),
+                      ("I live in a quiet place.", "Mieszkam w spokojnym miejscu."))),
+    course_lesson(105, "people", 5, "Praca i nauka", "Opowiedz o swojej pracy lub nauce.",
+                  old_phrases(2, 4, 7) + new_phrases(
+                      ("Where do you work?", "Gdzie pracujesz?"), ("I study English.", "Uczę się angielskiego."),
+                      ("I work in IT.", "Pracuję w IT."))),
+    course_lesson(106, "people", 6, "Opis wyglądu", "Opisz podstawowe cechy swojego wyglądu.", old_phrases(21, 4, 9)),
 
-    .card{
-      background:rgba(15,23,42,0.92);
-      border-radius:18px;
-      border:1px solid rgba(148,163,184,0.4);
-      box-shadow:0 18px 45px rgba(15,23,42,0.9);
-      padding:14px;
-    }
+    # A1 · Moduł 2 — Codzienne sytuacje
+    course_lesson(201, "daily", 1, "Kawiarnia", "Zamów kawę, wybierz dodatki i zapłać.", old_phrases(40)),
+    course_lesson(202, "daily", 2, "Restauracja", "Zamów posiłek i poproś o rachunek.", old_phrases(41)),
+    course_lesson(203, "daily", 3, "Zakupy", "Zapytaj o cenę, rozmiar i możliwość płatności.", new_phrases(
+        ("How much is this?", "Ile to kosztuje?"), ("I'm just looking, thank you.", "Tylko się rozglądam, dziękuję."),
+        ("Do you have this in a larger size?", "Czy macie to w większym rozmiarze?"),
+        ("Can I try it on?", "Czy mogę to przymierzyć?"), ("Where is the fitting room?", "Gdzie jest przymierzalnia?"),
+        ("I'll take it.", "Wezmę to."), ("Can I pay by card?", "Czy mogę zapłacić kartą?"))),
+    course_lesson(204, "daily", 4, "Pytanie o drogę", "Zapytaj o drogę i zrozum proste wskazówki.", new_phrases(
+        ("Excuse me, how do I get to the station?", "Przepraszam, jak dojść na stację?"),
+        ("Go straight ahead.", "Idź prosto."), ("Turn left.", "Skręć w lewo."), ("Turn right.", "Skręć w prawo."),
+        ("It's next to the bank.", "To jest obok banku."), ("It's opposite the hotel.", "To jest naprzeciwko hotelu."),
+        ("Is it far from here?", "Czy to daleko stąd?"))),
+    course_lesson(205, "daily", 5, "Transport miejski", "Kup przejazd i znajdź właściwy autobus lub peron.", new_phrases(
+        ("Where is the nearest bus stop?", "Gdzie jest najbliższy przystanek autobusowy?"),
+        ("Which bus goes to the city centre?", "Który autobus jedzie do centrum?"),
+        ("Does this train stop at Oxford?", "Czy ten pociąg zatrzymuje się w Oksfordzie?"),
+        ("A single ticket, please.", "Bilet w jedną stronę, proszę."),
+        ("A return ticket, please.", "Bilet w obie strony, proszę."),
+        ("What platform does it leave from?", "Z którego peronu odjeżdża?"),
+        ("When is the next bus?", "Kiedy jest następny autobus?"),
+        ("Where can I buy a ticket?", "Gdzie mogę kupić bilet?"),
+        ("How much is a ticket?", "Ile kosztuje bilet?"),
+        ("Can I pay by card?", "Czy mogę zapłacić kartą?"),
+        ("Can I buy a ticket from the driver?", "Czy mogę kupić bilet u kierowcy?"),
+        ("Do I need to validate my ticket?", "Czy muszę skasować bilet?"),
+        ("Where can I validate my ticket?", "Gdzie mogę skasować bilet?"),
+        ("Could I have a day ticket, please?", "Poproszę bilet całodzienny."),
+        ("Is this ticket valid on buses and trams?", "Czy ten bilet jest ważny w autobusach i tramwajach?"),
+        ("How long is this ticket valid for?", "Jak długo ten bilet jest ważny?"),
+        ("Is there a discount for students?", "Czy jest zniżka dla studentów?"),
+        ("Where can I find the timetable?", "Gdzie znajdę rozkład jazdy?"),
+        ("What time does the bus leave?", "O której odjeżdża autobus?"),
+        ("What time does the train arrive?", "O której przyjeżdża pociąg?"),
+        ("How often do the buses run?", "Jak często kursują autobusy?"),
+        ("Is the bus on time?", "Czy autobus jedzie zgodnie z rozkładem?"),
+        ("How long is the delay?", "Jak duże jest opóźnienie?"),
+        ("The bus is delayed.", "Autobus jest opóźniony."),
+        ("The train has been cancelled.", "Pociąg został odwołany."),
+        ("Is this the right bus for the city centre?", "Czy to właściwy autobus do centrum?"),
+        ("Does this bus go to the railway station?", "Czy ten autobus jedzie na dworzec kolejowy?"),
+        ("Which tram should I take?", "Którym tramwajem mam jechać?"),
+        ("Which line goes to the airport?", "Która linia jedzie na lotnisko?"),
+        ("Do I need to change buses?", "Czy muszę się przesiąść?"),
+        ("Where do I need to change?", "Gdzie muszę się przesiąść?"),
+        ("How many stops is it?", "Ile to przystanków?"),
+        ("Where should I get off?", "Gdzie mam wysiąść?"),
+        ("What is the next stop?", "Jaki jest następny przystanek?"),
+        ("Please tell me when we get there.", "Proszę mi powiedzieć, kiedy dojedziemy."),
+        ("Does this bus stop here?", "Czy ten autobus zatrzymuje się tutaj?"),
+        ("Could you stop here, please?", "Czy może się Pan/Pani tutaj zatrzymać?"),
+        ("This is my stop.", "To mój przystanek."),
+        ("Is this seat free?", "Czy to miejsce jest wolne?"),
+        ("Excuse me, may I get past?", "Przepraszam, czy mogę przejść?"),
+        ("The bus is very crowded.", "Autobus jest bardzo zatłoczony."),
+        ("Where is the ticket machine?", "Gdzie jest biletomat?"),
+        ("The ticket machine is not working.", "Biletomat nie działa."))),
+    course_lesson(206, "daily", 6, "Kupowanie biletów", "Kup bilety do kina, na koncert lub do atrakcji.",
+                  old_phrases(5) + old_phrases(6, 0, 6) + old_phrases(6, 13, 16)),
 
-    .btn{
-      display:inline-block; padding:10px 14px; border-radius:999px;
-      background: linear-gradient(135deg,#1d4ed8,#e11d48);
-      color:white; border:none; cursor:pointer; font-weight:700;
-      box-shadow: 0 14px 30px rgba(15,23,42,0.8);
-      transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
-    }
-    .btn:hover{
-      transform: translateY(-1px);
-      filter: brightness(1.06);
-      box-shadow: 0 18px 38px rgba(15,23,42,0.95);
-    }
-    .btn:active{
-      transform: translateY(0px);
-      filter: brightness(0.97);
-      box-shadow: 0 12px 24px rgba(15,23,42,0.85);
-    }
-    .btn-ghost{
-      background:rgba(15,23,42,0.75);
-      border:1px solid rgba(148,163,184,0.6);
-      box-shadow:none;
-    }
+    # A1 · Moduł 3 — Pogoda
+    course_lesson(301, "weather", 1, "Podstawowe określenia pogody", "Nazwij najczęstsze warunki pogodowe.", old_phrases(7, 0, 7)),
+    course_lesson(302, "weather", 2, "Temperatura i wiatr", "Opisz temperaturę oraz siłę wiatru.", old_phrases(7, 7, 18)),
+    course_lesson(303, "weather", 3, "Deszcz, burza i mgła", "Opisz deszcz, burzę, mgłę i widoczność.", old_phrases(7, 18, 30)),
+    course_lesson(304, "weather", 4, "Śnieg i mróz", "Rozmawiaj o śniegu, mrozie i oblodzeniu.", old_phrases(7, 30, 35)),
+    course_lesson(305, "weather", 5, "Opinie i prognoza pogody", "Wyraź opinię i powiedz, jakiej pogody się spodziewasz.",
+                  old_phrases(71) + new_phrases(("What will the weather be like tomorrow?", "Jaka będzie jutro pogoda?"),
+                                               ("It will be sunny tomorrow.", "Jutro będzie słonecznie."))),
+    course_lesson(306, "weather", 6, "Pory roku — dziś i wczoraj", "Porównuj dzisiejsze i wczorajsze wydarzenia oraz rozmawiaj o zmianie pór roku.", new_phrases(
+        ("Today is the first day of summer.", "Dzisiaj jest pierwszy dzień lata."),
+        ("It is hot.", "Jest gorąco."),
+        ("Yesterday was the last day of spring.", "Wczoraj był ostatni dzień wiosny."),
+        ("Yesterday I was at the swimming pool.", "Wczoraj byłem na basenie."),
+        ("Yesterday I was outside.", "Wczoraj byłem na zewnątrz."),
+        ("I sunbathed.", "Opalałem się."),
+        ("Today I am at home.", "Dzisiaj jestem w domu."))),
 
-    input, textarea, select{
-      width:100%; padding:10px 12px; border-radius:14px;
-      border:1px solid rgba(148,163,184,0.7);
-      background: rgba(15,23,42,0.9); color:#e5e7eb;
-      outline:none;
-    }
-    input:focus, textarea:focus, select:focus{
-      border-color:#60a5fa;
-      box-shadow:0 0 0 1px rgba(96,165,250,0.5);
-    }
-    textarea{min-height:84px; resize:vertical}
+    # A2 · Moduł 4 — Lotnisko
+    course_lesson(401, "airport", 1, "Rezerwacja i przygotowanie do podróży", "Zarezerwuj lot i przygotuj dokumenty.", new_phrases(
+        ("I'd like to book a flight to London.", "Chciałbym zarezerwować lot do Londynu."),
+        ("I would like to fly to Naples one day.", "Chciałbym kiedyś polecieć do Neapolu."),
+        ("Is that a direct flight?", "Czy to lot bezpośredni?"), ("What time does the flight leave?", "O której odlatuje samolot?"),
+        ("I have an online reservation.", "Mam rezerwację internetową."), ("Where can I print my boarding pass?", "Gdzie mogę wydrukować kartę pokładową?"),
+        ("Do I need a visa?", "Czy potrzebuję wizy?"))),
+    course_lesson(402, "airport", 2, "Odprawa pasażera", "Odpraw się, nadaj bagaż i wybierz miejsce.", old_phrases(31)),
+    course_lesson(403, "airport", 3, "Pytania pracownika odprawy", "Zrozum pytania personelu przy stanowisku odprawy.",
+                  old_phrases(32) + new_phrases(("Did you pack your bags yourself?", "Czy samodzielnie spakowałeś bagaże?"),
+                                               ("Would you like a window or an aisle seat?", "Wolisz miejsce przy oknie czy przy przejściu?"))),
+    course_lesson(404, "airport", 4, "Bagaż", "Rozpoznaj rodzaje bagażu i opisz problem.", old_phrases(33)),
+    course_lesson(405, "airport", 5, "Kontrola bezpieczeństwa", "Zrozum polecenia podczas kontroli bezpieczeństwa.", old_phrases(34)),
+    course_lesson(406, "airport", 6, "Kontrola paszportowa", "Odpowiedz na pytania o cel i długość pobytu.", old_phrases(35)),
+    course_lesson(407, "airport", 7, "Informacje o locie i bramka", "Sprawdź bramkę, boarding i status lotu.", old_phrases(36)),
+    course_lesson(408, "airport", 8, "Na pokładzie samolotu", "Znajdź miejsce i poproś personel o pomoc.", old_phrases(37)),
+    course_lesson(409, "airport", 9, "Odbiór bagażu i cło", "Odbierz bagaż i przejdź przez kontrolę celną.", old_phrases(38, 0, 4)),
+    course_lesson(410, "airport", 10, "Problemy na lotnisku", "Zgłoś problem i poproś o wyjaśnienie lub pomoc.",
+                  old_phrases(38, 4, 10) + new_phrases(("My flight has been cancelled.", "Mój lot został odwołany."),
+                                                      ("Where is the lost luggage desk?", "Gdzie jest punkt zagubionego bagażu?"))),
 
-    .row{display:grid; grid-template-columns:1fr 1fr; gap:10px}
-    @media(max-width:700px){ .row{grid-template-columns:1fr} }
-    .muted{opacity:.85; font-size:14px}
-    .pill{
-      display:inline-block; padding:4px 10px; border-radius:999px;
-      background:rgba(30,64,175,0.8);
-      border:1px solid rgba(191,219,254,0.8);
-      margin-right:6px; font-size:12px;
-    }
-    .list{display:flex; flex-direction:column; gap:10px}
-    .hr{height:1px; background:rgba(148,163,184,0.5); margin:12px 0}
-    .actions{display:flex; gap:8px; flex-wrap:wrap}
-    .big{font-size:26px; font-weight:900}
+    # A2 · Moduł 5 — Pobyt za granicą
+    course_lesson(501, "abroad", 1, "Hotel — zameldowanie", "Zamelduj się w hotelu i zapytaj o najważniejsze informacje.", new_phrases(
+        ("I have a reservation under the name Kowalski.", "Mam rezerwację na nazwisko Kowalski."),
+        ("I'd like to check in, please.", "Chciałbym się zameldować."), ("Could I see your passport, please?", "Czy mogę zobaczyć paszport?"),
+        ("What time is breakfast?", "O której jest śniadanie?"), ("What is the Wi-Fi password?", "Jakie jest hasło do Wi-Fi?"),
+        ("What time is check-out?", "O której jest wymeldowanie?"))),
+    course_lesson(502, "abroad", 2, "Hotel — problemy i prośby", "Zgłoś usterkę i poproś obsługę hotelu o pomoc.", new_phrases(
+        ("There is a problem with my room.", "Jest problem z moim pokojem."), ("The air conditioning doesn't work.", "Klimatyzacja nie działa."),
+        ("There is no hot water.", "Nie ma ciepłej wody."), ("Could I have another towel?", "Czy mogę dostać dodatkowy ręcznik?"),
+        ("Could you send someone to help?", "Czy możecie przysłać kogoś do pomocy?"), ("Can I change rooms?", "Czy mogę zmienić pokój?"))),
+    course_lesson(503, "abroad", 3, "Zwiedzanie miasta", "Zapytaj o atrakcje, godziny otwarcia i rekomendacje.", new_phrases(
+        ("What do you recommend visiting?", "Co polecasz zwiedzić?"), ("Where is the tourist information centre?", "Gdzie jest centrum informacji turystycznej?"),
+        ("What time does the museum open?", "O której otwiera się muzeum?"), ("Is it open on Sundays?", "Czy jest otwarte w niedziele?"),
+        ("Could you show me on the map?", "Czy możesz pokazać mi na mapie?"), ("I'd like to join a guided tour.", "Chciałbym dołączyć do wycieczki z przewodnikiem."))),
+    course_lesson(504, "abroad", 4, "Kupowanie biletów do atrakcji", "Kup właściwy bilet i zapytaj o dostępne zniżki.", old_phrases(5) + new_phrases(
+        ("Two adult tickets, please.", "Dwa bilety dla dorosłych, proszę."), ("What time is the last entry?", "O której jest ostatnie wejście?"))),
+    course_lesson(505, "abroad", 5, "Nagłe sytuacje i proszenie o pomoc", "Poproś o pilną pomoc i opisz podstawowy problem.", new_phrases(
+        ("Could you help me, please?", "Czy możesz mi pomóc?"), ("I need a doctor.", "Potrzebuję lekarza."),
+        ("Please call an ambulance.", "Proszę wezwać karetkę."), ("I've lost my passport.", "Zgubiłem paszport."),
+        ("Where is the nearest police station?", "Gdzie jest najbliższy posterunek policji?"),
+        ("I don't feel well.", "Źle się czuję."), ("Can you speak more slowly, please?", "Czy możesz mówić wolniej?"))),
 
-    .flash{
-      padding:10px 12px; border-radius:14px; margin:0 0 12px 0;
-      background:rgba(34,197,94,0.18);
-      border:1px solid rgba(34,197,94,0.35)
-    }
-    .flash.err{
-      background:rgba(239,68,68,0.15);
-      border:1px solid rgba(239,68,68,0.35)
-    }
+    # A1/A2 · Moduł 6 — Zamawianie jedzenia i dostawa
+    course_lesson(601, "delivery", 1, "Zamawianie jedzenia", "Złóż zamówienie telefonicznie lub przez aplikację i wybierz dostawę.", new_phrases(
+        ("I'd like to order some food.", "Chciałbym zamówić jedzenie."),
+        ("Can I place an order for delivery?", "Czy mogę złożyć zamówienie z dostawą?"),
+        ("I'd like to order by phone.", "Chciałbym złożyć zamówienie telefonicznie."),
+        ("Is delivery available?", "Czy dostawa jest dostępna?"),
+        ("Could I see the menu, please?", "Czy mogę zobaczyć menu?"),
+        ("I'd like to order two meals.", "Chciałbym zamówić dwa posiłki."))),
+    course_lesson(602, "delivery", 2, "Azjatyckie jedzenie", "Zamów azjatyckie dania, wybierz dodatki i określ poziom ostrości.", new_phrases(
+        ("I'd like chicken noodles, please.", "Poproszę makaron z kurczakiem."),
+        ("Can I have fried rice?", "Czy mogę prosić o smażony ryż?"),
+        ("I'd like a portion of spring rolls.", "Poproszę porcję sajgonek."),
+        ("Do you have sushi sets?", "Czy macie zestawy sushi?"),
+        ("I'd like chicken curry with rice.", "Poproszę curry z kurczakiem i ryżem."),
+        ("Is this dish spicy?", "Czy to danie jest ostre?"),
+        ("Can you make it less spicy?", "Czy można przygotować je mniej ostre?"),
+        ("No chilli, please.", "Bez chili, proszę."),
+        ("Does this dish contain peanuts?", "Czy to danie zawiera orzeszki ziemne?"),
+        ("I'd like some soy sauce, please.", "Poproszę sos sojowy."),
+        ("Can I have chopsticks, please?", "Czy mogę prosić o pałeczki?"),
+        ("I'd like to order some Asian food.", "Chciałbym zamówić azjatyckie jedzenie."),
+        ("Could I see the Asian menu, please?", "Czy mogę zobaczyć menu azjatyckie?"),
+        ("What Asian dishes do you recommend?", "Jakie dania azjatyckie polecacie?"),
+        ("What is the most popular dish?", "Jakie jest najpopularniejsze danie?"),
+        ("I'd like a sushi set for one person.", "Poproszę zestaw sushi dla jednej osoby."),
+        ("Could I have a salmon sushi set?", "Czy mogę prosić o zestaw sushi z łososiem?"),
+        ("I'd like vegetable sushi, please.", "Poproszę sushi z warzywami."),
+        ("Does the sushi contain raw fish?", "Czy sushi zawiera surową rybę?"),
+        ("I'd like pad thai with chicken.", "Poproszę pad thai z kurczakiem."),
+        ("Can I have rice noodles instead?", "Czy mogę zamiast tego dostać makaron ryżowy?"),
+        ("I'd like fried noodles with vegetables.", "Poproszę smażony makaron z warzywami."),
+        ("Could I have beef with vegetables?", "Czy mogę prosić o wołowinę z warzywami?"),
+        ("I'd like sweet and sour chicken.", "Poproszę kurczaka w sosie słodko-kwaśnym."),
+        ("Can I have crispy chicken, please?", "Czy mogę prosić o chrupiącego kurczaka?"),
+        ("I'd like tofu instead of meat.", "Poproszę tofu zamiast mięsa."),
+        ("Do you have any vegetarian dishes?", "Czy macie dania wegetariańskie?"),
+        ("Is this dish vegan?", "Czy to danie jest wegańskie?"),
+        ("How spicy is this dish?", "Jak ostre jest to danie?"),
+        ("I'd like it mildly spicy.", "Poproszę lekko ostre."),
+        ("I'd like it very spicy.", "Poproszę bardzo ostre."),
+        ("Could I have the sauce separately?", "Czy mogę dostać sos osobno?"),
+        ("Please add some extra vegetables.", "Proszę dodać więcej warzyw."),
+        ("Can I have an extra portion of rice?", "Czy mogę prosić o dodatkową porcję ryżu?"),
+        ("Could I have some wasabi and ginger?", "Czy mogę prosić o wasabi i imbir?"),
+        ("Does this dish contain gluten?", "Czy to danie zawiera gluten?"),
+        ("I'm allergic to shellfish.", "Mam alergię na skorupiaki."),
+        ("Does this contain sesame?", "Czy to zawiera sezam?"),
+        ("Please don't add any peanuts.", "Proszę nie dodawać orzeszków ziemnych."),
+        ("Can I have a portion of prawn crackers?", "Czy mogę prosić o porcję chipsów krewetkowych?"),
+        ("I'd like a jasmine tea, please.", "Poproszę herbatę jaśminową."),
+        ("How much is the sushi set?", "Ile kosztuje zestaw sushi?"),
+        ("How long will the order take?", "Ile potrwa przygotowanie zamówienia?"),
+        ("Is this order for collection or delivery?", "Czy to zamówienie z odbiorem czy z dostawą?"),
+        ("I'd like it delivered, please.", "Poproszę o dostawę."),
+        ("Can I pay by card?", "Czy mogę zapłacić kartą?"),
+        ("That's all, thank you.", "To wszystko, dziękuję."))),
+    course_lesson(603, "delivery", 3, "Wybór składników i dodatków", "Wybierz składniki, zamień dodatki i poinformuj o alergii.", new_phrases(
+        ("Could you replace the chicken with tofu?", "Czy można zamienić kurczaka na tofu?"),
+        ("I'd like extra vegetables.", "Poproszę dodatkowe warzywa."),
+        ("No onions, please.", "Bez cebuli, proszę."),
+        ("Can I have an extra portion of rice?", "Czy mogę dostać dodatkową porcję ryżu?"),
+        ("I'm allergic to nuts.", "Mam alergię na orzechy."),
+        ("Does this contain gluten?", "Czy to zawiera gluten?"))),
+    course_lesson(604, "delivery", 4, "Adres i szczegóły dostawy", "Podaj adres i przekaż kurierowi dokładne instrukcje dostawy.", new_phrases(
+        ("What is the delivery address?", "Jaki jest adres dostawy?"),
+        ("My address is 15 Green Street.", "Mój adres to Green Street 15."),
+        ("My flat number is twelve.", "Numer mojego mieszkania to dwanaście."),
+        ("Please use the entrance at the back.", "Proszę skorzystać z wejścia z tyłu."),
+        ("Please ring the doorbell.", "Proszę zadzwonić domofonem."),
+        ("Please leave the order at the door.", "Proszę zostawić zamówienie pod drzwiami."))),
+    course_lesson(605, "delivery", 5, "Rozmowa z kurierem", "Porozmawiaj z kurierem i pomóż mu znaleźć miejsce dostawy.", new_phrases(
+        ("Hello, I'm your delivery driver.", "Dzień dobry, jestem kurierem z dostawą."),
+        ("I'm outside the building.", "Jestem przed budynkiem."),
+        ("I can't find your address.", "Nie mogę znaleźć twojego adresu."),
+        ("I'll come downstairs in a moment.", "Za chwilę zejdę na dół."),
+        ("Please wait by the main entrance.", "Proszę zaczekać przy głównym wejściu."),
+        ("I'm wearing a blue jacket.", "Mam na sobie niebieską kurtkę."))),
+    course_lesson(606, "delivery", 6, "Czas dostawy i płatność", "Zapytaj o czas i koszt dostawy oraz wybierz sposób płatności.", new_phrases(
+        ("How long will the delivery take?", "Ile potrwa dostawa?"),
+        ("Your order will arrive in about thirty minutes.", "Twoje zamówienie dotrze za około trzydzieści minut."),
+        ("Is there a delivery charge?", "Czy jest opłata za dostawę?"),
+        ("How much is the total?", "Ile wynosi suma?"),
+        ("Can I pay by card?", "Czy mogę zapłacić kartą?"),
+        ("I'll pay in cash.", "Zapłacę gotówką."))),
+    course_lesson(607, "delivery", 7, "Problem z zamówieniem", "Zgłoś brakujący produkt, pomyłkę, opóźnienie lub złą jakość jedzenia.", new_phrases(
+        ("There is an item missing from my order.", "W moim zamówieniu brakuje jednego produktu."),
+        ("I received the wrong order.", "Otrzymałem niewłaściwe zamówienie."),
+        ("The food is cold.", "Jedzenie jest zimne."),
+        ("The drink has spilled.", "Napój się rozlał."),
+        ("My order is very late.", "Moje zamówienie jest bardzo spóźnione."),
+        ("I'd like a refund, please.", "Chciałbym otrzymać zwrot pieniędzy."))),
+    course_lesson(608, "delivery", 8, "Odbiór i ocena zamówienia", "Odbierz jedzenie, sprawdź zamówienie i wystaw krótką opinię.", new_phrases(
+        ("Is this the complete order?", "Czy to całe zamówienie?"),
+        ("Let me check the order.", "Proszę pozwolić mi sprawdzić zamówienie."),
+        ("Everything is correct.", "Wszystko się zgadza."),
+        ("Thank you for the delivery.", "Dziękuję za dostawę."),
+        ("The food was delicious and arrived on time.", "Jedzenie było pyszne i dotarło na czas."),
+        ("I'd like to leave a positive review.", "Chciałbym wystawić pozytywną opinię."))),
+    course_lesson(609, "delivery", 9, "Pizza z dostawą", "Wybierz wielkość i rodzaj ciasta, zmień składniki oraz zamów sosy.", new_phrases(
+        ("I'd like a large pepperoni pizza.", "Poproszę dużą pizzę pepperoni."),
+        ("Can I have a thin crust?", "Czy mogę prosić o cienkie ciasto?"),
+        ("No mushrooms, please.", "Bez pieczarek, proszę."),
+        ("Can you make it half and half?", "Czy można zrobić pizzę pół na pół?"),
+        ("Could I have some garlic sauce?", "Czy mogę prosić o sos czosnkowy?"),
+        ("I'd like to order a pizza, please.", "Chciałbym zamówić pizzę."),
+        ("Can I place an order for delivery?", "Czy mogę złożyć zamówienie z dostawą?"),
+        ("What pizzas do you have?", "Jakie macie pizze?"),
+        ("Which pizza do you recommend?", "Którą pizzę polecacie?"),
+        ("What sizes are available?", "Jakie rozmiary są dostępne?"),
+        ("A medium pizza, please.", "Poproszę średnią pizzę."),
+        ("I'd like a family-sized pizza.", "Poproszę pizzę w rozmiarze rodzinnym."),
+        ("Would you like a thin or thick crust?", "Wolisz cienkie czy grube ciasto?"),
+        ("I'd like a thick crust, please.", "Poproszę grube ciasto."),
+        ("What toppings would you like?", "Jakie dodatki wybierasz?"),
+        ("I'd like ham, onions and sweetcorn.", "Poproszę szynkę, cebulę i kukurydzę."),
+        ("Could you add extra cheese?", "Czy możecie dodać dodatkowy ser?"),
+        ("Please remove the olives.", "Proszę usunąć oliwki."),
+        ("Can I change one of the toppings?", "Czy mogę zmienić jeden z dodatków?"),
+        ("I'd like one half with pepperoni and the other half with vegetables.", "Chciałbym jedną połowę z pepperoni, a drugą z warzywami."),
+        ("Do you have a vegetarian pizza?", "Czy macie pizzę wegetariańską?"),
+        ("Do you have a gluten-free crust?", "Czy macie ciasto bezglutenowe?"),
+        ("Could I have tomato sauce, please?", "Czy mogę prosić o sos pomidorowy?"),
+        ("Please add two garlic sauces.", "Proszę dodać dwa sosy czosnkowe."),
+        ("Could you cut the pizza into eight slices?", "Czy możecie pokroić pizzę na osiem kawałków?"),
+        ("How much does the pizza cost?", "Ile kosztuje pizza?"),
+        ("Is delivery included in the price?", "Czy dostawa jest wliczona w cenę?"),
+        ("How long will the delivery take?", "Ile potrwa dostawa?"),
+        ("Can I pay by card?", "Czy mogę zapłacić kartą?"),
+        ("That's everything, thank you.", "To wszystko, dziękuję."),
+        ("Could you repeat my order, please?", "Czy możecie powtórzyć moje zamówienie?"),
+        ("Please deliver it to this address.", "Proszę dostarczyć ją pod ten adres."))),
+    course_lesson(610, "delivery", 10, "Kebab i jedzenie typu fast food", "Wybierz mięso, pieczywo, warzywa, sosy oraz zestaw z frytkami i napojem.", new_phrases(
+        ("I'd like a chicken kebab in a wrap.", "Poproszę kebab z kurczakiem w tortilli."),
+        ("Would you like it in a wrap or a bread roll?", "Czy chciałbyś kebab w tortilli czy w bułce?"),
+        ("What sauces would you like?", "Jakie sosy wybierasz?"),
+        ("Mixed sauce, please.", "Poproszę sos mieszany."),
+        ("No tomatoes, please.", "Bez pomidorów, proszę."),
+        ("I'd like a meal with fries and a drink.", "Poproszę zestaw z frytkami i napojem."),
+        ("I'd like to order a kebab, please.", "Chciałbym zamówić kebab."),
+        ("What kinds of meat do you have?", "Jakie rodzaje mięsa macie?"),
+        ("Would you like chicken, beef or mixed meat?", "Wolisz kurczaka, wołowinę czy mięso mieszane?"),
+        ("Mixed meat, please.", "Poproszę mięso mieszane."),
+        ("I'd like a large kebab.", "Poproszę dużego kebaba."),
+        ("Can I have it in a bread roll?", "Czy mogę dostać go w bułce?"),
+        ("I'd like a kebab box, please.", "Poproszę kebab box."),
+        ("Could I have more meat?", "Czy mogę prosić o więcej mięsa?"),
+        ("I'd like extra vegetables.", "Poproszę dodatkowe warzywa."),
+        ("No onions or tomatoes, please.", "Bez cebuli i pomidorów, proszę."),
+        ("Please add some lettuce and cucumber.", "Proszę dodać sałatę i ogórka."),
+        ("What sauces do you have?", "Jakie macie sosy?"),
+        ("Garlic sauce, please.", "Poproszę sos czosnkowy."),
+        ("I'd like a mild sauce.", "Poproszę łagodny sos."),
+        ("I'd like a spicy sauce.", "Poproszę ostry sos."),
+        ("Can I have the sauce separately?", "Czy mogę dostać sos osobno?"),
+        ("Only a little sauce, please.", "Tylko trochę sosu, proszę."),
+        ("Can I make it a meal?", "Czy mogę zamówić to w zestawie?"),
+        ("What drinks are available?", "Jakie napoje są dostępne?"),
+        ("A bottle of still water, please.", "Poproszę butelkę wody niegazowanej."),
+        ("Could I have large fries?", "Czy mogę prosić o duże frytki?"),
+        ("Is this for collection or delivery?", "Czy to zamówienie z odbiorem czy z dostawą?"),
+        ("I'd like it delivered, please.", "Poproszę o dostawę."),
+        ("How much is the meal?", "Ile kosztuje zestaw?"),
+        ("How long will I have to wait?", "Jak długo będę musiał czekać?"),
+        ("Can I pay when the food arrives?", "Czy mogę zapłacić przy odbiorze?"),
+        ("That's all for me, thank you.", "To wszystko dla mnie, dziękuję."))),
 
-    table{width:100%; border-collapse:collapse}
-    th,td{border-bottom:1px solid rgba(148,163,184,0.45); padding:10px; text-align:left}
-    th{opacity:.9}
+    # A2/B1 · Moduł 7 — Swobodna rozmowa
+    course_lesson(701, "conversation", 1, "Rodzina i znajomi", "Opowiedz o bliskich osobach i zadawaj pytania o rodzinę.", new_phrases(
+        ("Have you got any brothers or sisters?", "Czy masz braci lub siostry?"),
+        ("I've got one older brother.", "Mam jednego starszego brata."),
+        ("I get on well with my family.", "Dobrze dogaduję się z rodziną."),
+        ("We often spend time together.", "Często spędzamy razem czas."),
+        ("How did you meet your best friend?", "Jak poznałeś swojego najlepszego przyjaciela?"),
+        ("We've known each other for years.", "Znamy się od lat."),
+        ("What is she like?", "Jaka ona jest?"),
+        ("She's friendly and easy-going.", "Jest przyjazna i spokojna."))),
+    course_lesson(702, "conversation", 2, "Zainteresowania", "Porozmawiaj o hobby i sposobach spędzania wolnego czasu.", new_phrases(
+        ("What do you do in your free time?", "Co robisz w wolnym czasie?"),
+        ("I'm really interested in technology.", "Bardzo interesuję się technologią."),
+        ("I've recently started learning English.", "Niedawno zacząłem uczyć się angielskiego."),
+        ("How often do you do that?", "Jak często to robisz?"),
+        ("I usually do it at weekends.", "Zwykle robię to w weekendy."),
+        ("What got you interested in it?", "Co sprawiło, że się tym zainteresowałeś?"),
+        ("I'd like to try something new.", "Chciałbym spróbować czegoś nowego."),
+        ("That sounds like fun.", "To brzmi ciekawie."))),
+    course_lesson(703, "conversation", 3, "Plany na weekend", "Zapytaj o plany, zaproponuj spotkanie i ustal szczegóły.", new_phrases(
+        ("Have you got any plans for the weekend?", "Masz jakieś plany na weekend?"),
+        ("I'm thinking of going to the cinema.", "Myślę o pójściu do kina."),
+        ("Would you like to come with us?", "Chciałbyś pójść z nami?"),
+        ("That sounds great!", "To brzmi świetnie!"),
+        ("What time shall we meet?", "O której się spotkamy?"),
+        ("How about Saturday afternoon?", "Może w sobotę po południu?"),
+        ("I'm afraid I can't make it.", "Niestety nie dam rady."),
+        ("Maybe another time.", "Może innym razem."))),
+    course_lesson(704, "conversation", 4, "Filmy, muzyka i książki", "Wymień się opiniami i rekomendacjami dotyczącymi kultury.", new_phrases(
+        ("What kind of films do you like?", "Jakie filmy lubisz?"),
+        ("I'm a big fan of comedies.", "Jestem wielkim fanem komedii."),
+        ("Have you seen this film?", "Widziałeś ten film?"),
+        ("What did you think of it?", "Co o nim sądzisz?"),
+        ("The story was really interesting.", "Historia była naprawdę interesująca."),
+        ("I couldn't put the book down.", "Nie mogłem oderwać się od książki."),
+        ("Who is your favourite singer?", "Kto jest twoim ulubionym piosenkarzem?"),
+        ("You should definitely check it out.", "Zdecydowanie powinieneś to sprawdzić."))),
+    course_lesson(705, "conversation", 5, "Sport", "Porozmawiaj o aktywności, zawodach i ulubionych dyscyplinach.", new_phrases(
+        ("Are you interested in sport?", "Interesujesz się sportem?"),
+        ("I try to keep fit.", "Staram się utrzymywać formę."),
+        ("I go running twice a week.", "Biegam dwa razy w tygodniu."),
+        ("Do you support any team?", "Kibicujesz jakiejś drużynie?"),
+        ("Did you watch the match yesterday?", "Oglądałeś wczoraj mecz?"),
+        ("It was a very close game.", "To był bardzo wyrównany mecz."),
+        ("Who won the match?", "Kto wygrał mecz?"),
+        ("I'd like to get back into training.", "Chciałbym wrócić do treningów."))),
+    course_lesson(706, "conversation", 6, "Wakacje i wspomnienia", "Opowiedz o podróży, wydarzeniach i swoich wrażeniach.", new_phrases(
+        ("Where did you go on holiday?", "Gdzie pojechałeś na wakacje?"),
+        ("I often travel to other countries.", "Często podróżuję do innych krajów."),
+        ("I spent a week by the sea.", "Spędziłem tydzień nad morzem."),
+        ("What was the weather like?", "Jaka była pogoda?"),
+        ("We visited lots of interesting places.", "Odwiedziliśmy wiele ciekawych miejsc."),
+        ("The best part was the food.", "Najlepsze było jedzenie."),
+        ("I'll never forget that trip.", "Nigdy nie zapomnę tej podróży."),
+        ("Have you ever been abroad?", "Czy byłeś kiedyś za granicą?"),
+        ("I'd love to go back one day.", "Chciałbym kiedyś tam wrócić."))),
+    course_lesson(707, "conversation", 7, "Wakacje w Wenecji", "Opowiedz o wyjeździe do Wenecji, zwiedzaniu miasta i swoich wrażeniach.", new_phrases(
+        ("I went to Venice on holiday.", "Pojechałem na wakacje do Wenecji."),
+        ("Have you ever been to Venice?", "Czy byłeś kiedyś w Wenecji?"),
+        ("Venice is a beautiful city in Italy.", "Wenecja to piękne miasto we Włoszech."),
+        ("We stayed there for three days.", "Zatrzymaliśmy się tam na trzy dni."),
+        ("We travelled there by train.", "Pojechaliśmy tam pociągiem."),
+        ("Our hotel was near the city centre.", "Nasz hotel znajdował się blisko centrum miasta."),
+        ("We visited St Mark's Square.", "Odwiedziliśmy Plac Świętego Marka."),
+        ("We saw St Mark's Basilica.", "Zobaczyliśmy Bazylikę Świętego Marka."),
+        ("The canals were amazing.", "Kanały były niesamowite."),
+        ("We took a gondola ride.", "Popłynęliśmy gondolą."),
+        ("We crossed the Rialto Bridge.", "Przeszliśmy przez Most Rialto."),
+        ("We walked through many narrow streets.", "Spacerowaliśmy wieloma wąskimi uliczkami."),
+        ("The city was crowded with tourists.", "Miasto było zatłoczone turystami."),
+        ("The weather was warm and sunny.", "Pogoda była ciepła i słoneczna."),
+        ("We ate delicious Italian food.", "Jedliśmy pyszne włoskie jedzenie."),
+        ("I tried traditional Venetian dishes.", "Spróbowałem tradycyjnych weneckich potraw."),
+        ("We bought some souvenirs.", "Kupiliśmy kilka pamiątek."),
+        ("I took a lot of photos.", "Zrobiłem dużo zdjęć."),
+        ("My favourite place was St Mark's Square.", "Moim ulubionym miejscem był Plac Świętego Marka."),
+        ("The trip was unforgettable.", "Ta podróż była niezapomniana."),
+        ("I would love to visit Venice again.", "Chciałbym ponownie odwiedzić Wenecję."))),
+    course_lesson(708, "conversation", 8, "Wyrażanie opinii", "Przedstaw własne zdanie i uprzejmie poproś rozmówcę o opinię.", new_phrases(
+        ("What do you think about it?", "Co o tym sądzisz?"),
+        ("In my opinion, it's a good idea.", "Moim zdaniem to dobry pomysł."),
+        ("As far as I'm concerned, it's too expensive.", "Jeśli o mnie chodzi, to jest za drogie."),
+        ("I think it depends on the situation.", "Myślę, że to zależy od sytuacji."),
+        ("There are advantages and disadvantages.", "Są zalety i wady."),
+        ("The main reason is that it saves time.", "Głównym powodem jest to, że oszczędza czas."),
+        ("I'm not sure what I think about it.", "Nie jestem pewien, co o tym sądzę."),
+        ("That's an interesting point.", "To interesująca uwaga."))),
+    course_lesson(709, "conversation", 9, "Zgadzanie się i sprzeciwianie", "Reaguj na opinię rozmówcy w naturalny i uprzejmy sposób.", new_phrases(
+        ("I completely agree with you.", "Całkowicie się z tobą zgadzam."),
+        ("That's exactly what I think.", "Dokładnie tak samo myślę."),
+        ("You may be right.", "Możliwe, że masz rację."),
+        ("I see what you mean.", "Rozumiem, co masz na myśli."),
+        ("I'm not sure I agree.", "Nie jestem pewien, czy się zgadzam."),
+        ("I understand your point, but...", "Rozumiem twój punkt widzenia, ale..."),
+        ("I have a slightly different opinion.", "Mam nieco inne zdanie."),
+        ("Let's agree to disagree.", "Pozostańmy przy swoich zdaniach."))),
 
-    /* ===== TTS ===== */
-    .tts-btn{
-      border:none; cursor:pointer; margin-left:8px;
-      border-radius:999px; padding:7px 9px;
-      background: rgba(15,23,42,0.9);
-      border:1px solid rgba(148,163,184,0.7);
-      color:#e5e7eb;
-      transition: transform .12s ease, filter .12s ease;
-      font-size:13px;
-    }
-    .tts-btn:hover{
-      transform: translateY(-1px);
-      filter: brightness(1.07);
-    }
-    .tts-btn:active{
-      transform: translateY(0px);
-      filter: brightness(0.97);
-    }
-    .tts-sm{padding:5px 7px; font-size:12px}
+    # A2/B1 · Moduł 8 — Praca
+    course_lesson(801, "work", 1, "CV i doświadczenie zawodowe", "Opisz doświadczenie, obowiązki, wykształcenie i umiejętności potrzebne w CV.", new_phrases(
+        ("I'm preparing my CV.", "Przygotowuję swoje CV."),
+        ("I'm applying for the position of software tester.", "Aplikuję na stanowisko testera oprogramowania."),
+        ("I have two years of experience in software testing.", "Mam dwa lata doświadczenia w testowaniu oprogramowania."),
+        ("I currently work as a software tester.", "Obecnie pracuję jako tester oprogramowania."),
+        ("My main responsibilities include testing web applications.", "Do moich głównych obowiązków należy testowanie aplikacji internetowych."),
+        ("I am responsible for reporting and verifying defects.", "Odpowiadam za zgłaszanie i weryfikowanie defektów."),
+        ("I have experience with manual testing.", "Mam doświadczenie w testowaniu manualnym."),
+        ("I am familiar with Jira and SQL.", "Znam Jirę i SQL."),
+        ("I have strong analytical and communication skills.", "Mam rozwinięte umiejętności analityczne i komunikacyjne."),
+        ("I work well both independently and as part of a team.", "Dobrze pracuję zarówno samodzielnie, jak i w zespole."),
+        ("I graduated from technical school.", "Ukończyłem szkołę techniczną."),
+        ("I am currently improving my English skills.", "Obecnie rozwijam swoją znajomość języka angielskiego."),
+        ("My career objective is to develop as a QA engineer.", "Moim celem zawodowym jest rozwój jako inżynier QA."),
+        ("References are available upon request.", "Referencje są dostępne na życzenie."))),
+    course_lesson(802, "work", 2, "Rozmowa kwalifikacyjna", "Przedstaw się, odpowiedz na typowe pytania rekrutera i opowiedz o swojej motywacji.", new_phrases(
+        ("Thank you for inviting me to the interview.", "Dziękuję za zaproszenie mnie na rozmowę kwalifikacyjną."),
+        ("Could you tell me a little about yourself?", "Czy możesz opowiedzieć trochę o sobie?"),
+        ("I currently work as a software tester.", "Obecnie pracuję jako tester oprogramowania."),
+        ("I have two years of experience in software testing.", "Mam dwa lata doświadczenia w testowaniu oprogramowania."),
+        ("Why are you interested in this position?", "Dlaczego interesuje cię to stanowisko?"),
+        ("I would like to develop my skills and take on new challenges.", "Chciałbym rozwijać swoje umiejętności i podejmować nowe wyzwania."),
+        ("Why would you like to work for our company?", "Dlaczego chciałbyś pracować w naszej firmie?"),
+        ("Your company offers interesting opportunities for professional development.", "Państwa firma oferuje ciekawe możliwości rozwoju zawodowego."),
+        ("What are your strengths?", "Jakie są twoje mocne strony?"),
+        ("I am analytical, organised and detail-oriented.", "Jestem analityczny, zorganizowany i zwracam uwagę na szczegóły."),
+        ("What is your greatest weakness?", "Jaka jest twoja największa słabość?"),
+        ("I sometimes focus too much on details, but I am learning to manage my time better.", "Czasami za bardzo skupiam się na szczegółach, ale uczę się lepiej zarządzać czasem."),
+        ("Can you describe a difficult situation at work?", "Czy możesz opisać trudną sytuację w pracy?"),
+        ("I stayed calm, analysed the problem and discussed it with my team.", "Zachowałem spokój, przeanalizowałem problem i omówiłem go z zespołem."),
+        ("How do you work under pressure?", "Jak pracujesz pod presją?"),
+        ("I set priorities and focus on one task at a time.", "Ustalam priorytety i skupiam się na jednym zadaniu naraz."),
+        ("Do you prefer working independently or in a team?", "Wolisz pracować samodzielnie czy w zespole?"),
+        ("I am comfortable working both independently and as part of a team.", "Dobrze czuję się, pracując zarówno samodzielnie, jak i w zespole."),
+        ("Where do you see yourself in five years?", "Gdzie widzisz siebie za pięć lat?"),
+        ("I would like to become an experienced QA engineer.", "Chciałbym zostać doświadczonym inżynierem QA."),
+        ("When could you start?", "Kiedy mógłbyś zacząć?"),
+        ("I am available to start next month.", "Mogę rozpocząć pracę w przyszłym miesiącu."),
+        ("What are your salary expectations?", "Jakie są twoje oczekiwania finansowe?"),
+        ("I am open to discussing the salary based on the responsibilities of the role.", "Jestem otwarty na rozmowę o wynagrodzeniu zależnym od obowiązków na tym stanowisku."),
+        ("Do you have any questions for us?", "Czy masz do nas jakieś pytania?"),
+        ("What would my main responsibilities be?", "Jakie byłyby moje główne obowiązki?"),
+        ("What does the recruitment process look like?", "Jak wygląda proces rekrutacyjny?"),
+        ("Thank you for your time. I look forward to hearing from you.", "Dziękuję za poświęcony czas. Z niecierpliwością czekam na odpowiedź."))),
+]
 
-    .tts-panel{
-      position:fixed; right:16px; bottom:16px; width:320px; max-width:calc(100vw - 32px);
-      background: rgba(15,23,42,0.98);
-      border:1px solid rgba(148,163,184,0.7);
-      border-radius:18px; padding:12px;
-      backdrop-filter: blur(10px);
-      box-shadow: 0 22px 55px rgba(0,0,0,0.85);
-      display:none; z-index:60;
-    }
-    .tts-panel.show{display:block}
-    .mini-btn{
-      background: rgba(15,23,42,0.9);
-      border:1px solid rgba(148,163,184,0.7);
-      color:#e5e7eb;
-      border-radius:999px;
-      padding:7px 10px;
-      cursor:pointer;
-      font-size:12px;
-    }
-    .mini-btn:hover{
-      background:rgba(30,64,175,0.8);
-      border-color:rgba(219,234,254,0.95);
-    }
-  </style>
-</head>
-<body>
-  <div class="top">
-    <div class="brand">
-      <div class="flag"></div>
-      <span>{{title}}</span>
-    </div>
-    <div class="nav">
-      <a href="{{ url_for('home') }}">Start</a>
-      <a href="{{ url_for('materials_list') }}">Materiały</a>
-      <a href="{{ url_for('lessons_list') }}">Lekcje</a>
-      <a href="{{ url_for('words_page') }}">Słownik</a>
-      <a href="#" id="ttsOpen">🔊 Audio</a>
-    </div>
-  </div>
-  <div class="wrap">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for cat,msg in messages %}
-          <div class="flash {% if cat=='err' %}err{% endif %}">{{msg}}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-    {{ body|safe }}
-  </div>
+# Dodatkowe zwroty praktyczne — po dwa dla każdej lekcji kursu.
+# Oddzielna mapa ułatwia późniejsze rozszerzanie materiału bez edycji podstaw lekcji.
+EXTRA_PHRASES = {
+    101: [("How's it going?", "Jak leci?"), ("It was nice talking to you.", "Miło było z tobą porozmawiać.")],
+    102: [("Let me introduce myself.", "Pozwól, że się przedstawię."), ("What should I call you?", "Jak mam się do ciebie zwracać?")],
+    103: [("My birthday is in July.", "Moje urodziny są w lipcu."), ("What year were you born?", "W którym roku się urodziłeś?")],
+    104: [("It's a small village in Poland.", "To mała wieś w Polsce."), ("What is your neighbourhood like?", "Jaka jest twoja okolica?")],
+    105: [("What are your main duties?", "Jakie są twoje główne obowiązki?"), ("I enjoy learning new things.", "Lubię uczyć się nowych rzeczy.")],
+    106: [("He is tall and has short hair.", "On jest wysoki i ma krótkie włosy."), ("What does she look like?", "Jak ona wygląda?")],
+    201: [("Is that for here or to take away?", "Na miejscu czy na wynos?"), ("Could I have the receipt, please?", "Czy mogę prosić o paragon?")],
+    202: [("What do you recommend?", "Co pan/pani poleca?"), ("Does this dish contain nuts?", "Czy to danie zawiera orzechy?")],
+    203: [("Is there a discount?", "Czy jest jakaś zniżka?"), ("Can I return this item?", "Czy mogę zwrócić ten produkt?")],
+    204: [("Could you say that again, please?", "Czy możesz powiedzieć to jeszcze raz?"), ("How long does it take to walk there?", "Ile czasu zajmuje dojście tam pieszo?")],
+    205: [("Where can I buy a travel card?", "Gdzie mogę kupić kartę miejską?"), ("Please tell me when we get there.", "Proszę mi powiedzieć, kiedy tam dojedziemy.")],
+    206: [("Are there any seats available?", "Czy są dostępne miejsca?"), ("Can I choose my seat?", "Czy mogę wybrać swoje miejsce?")],
+    301: [("What's the weather like today?", "Jaka jest dzisiaj pogoda?"), ("The sky is clear.", "Niebo jest bezchmurne.")],
+    302: [("What's the temperature outside?", "Jaka jest temperatura na zewnątrz?"), ("It's getting colder.", "Robi się chłodniej.")],
+    303: [("Don't forget your umbrella.", "Nie zapomnij parasola."), ("The storm is getting closer.", "Burza się zbliża.")],
+    304: [("Be careful, the pavement is slippery.", "Uważaj, chodnik jest śliski."), ("The temperature is below zero.", "Temperatura jest poniżej zera.")],
+    305: [("According to the forecast, it will rain.", "Według prognozy będzie padać."), ("I hope the weather improves.", "Mam nadzieję, że pogoda się poprawi.")],
+    306: [("Autumn begins in September.", "Jesień zaczyna się we wrześniu."), ("Which season do you like best?", "Którą porę roku lubisz najbardziej?")],
+    401: [("I'd like a one-way ticket.", "Poproszę bilet w jedną stronę."), ("How much luggage can I take?", "Ile bagażu mogę zabrać?")],
+    402: [("Where is the check-in desk?", "Gdzie jest stanowisko odprawy?"), ("Can I check in online?", "Czy mogę odprawić się przez internet?")],
+    403: [("Has your luggage been with you at all times?", "Czy twój bagaż był cały czas przy tobie?"), ("Please place your bag on the scales.", "Proszę położyć torbę na wadze.")],
+    404: [("My suitcase is damaged.", "Moja walizka jest uszkodzona."), ("Is my bag over the weight limit?", "Czy mój bagaż przekracza limit wagi?")],
+    405: [("Do I need to take off my jacket?", "Czy muszę zdjąć kurtkę?"), ("Please empty your pockets.", "Proszę opróżnić kieszenie.")],
+    406: [("I'm staying for one week.", "Zostaję na tydzień."), ("I'm staying at a hotel in London.", "Zatrzymuję się w hotelu w Londynie.")],
+    407: [("Has the gate changed?", "Czy bramka została zmieniona?"), ("How long is the delay?", "Jak duże jest opóźnienie?")],
+    408: [("Could you help me with my bag?", "Czy może mi pan/pani pomóc z torbą?"), ("May I recline my seat?", "Czy mogę odchylić fotel?")],
+    409: [("Which carousel is for this flight?", "Która taśma jest dla tego lotu?"), ("Do I need to fill in a customs form?", "Czy muszę wypełnić formularz celny?")],
+    410: [("Who should I speak to about this?", "Z kim powinienem o tym porozmawiać?"), ("Could you explain what happened?", "Czy może pan/pani wyjaśnić, co się stało?")],
+    501: [("Is breakfast included?", "Czy śniadanie jest wliczone?"), ("Could I have a room with a view?", "Czy mogę dostać pokój z widokiem?")],
+    502: [("The room hasn't been cleaned.", "Pokój nie został posprzątany."), ("Could you look into this, please?", "Czy mogą państwo to sprawdzić?")],
+    503: [("Is photography allowed here?", "Czy można tutaj robić zdjęcia?"), ("How long does the tour take?", "Ile trwa wycieczka?")],
+    504: [("Is there a family ticket?", "Czy jest bilet rodzinny?"), ("Can I book a time slot online?", "Czy mogę zarezerwować godzinę przez internet?")],
+    505: [("It's an emergency.", "To nagły wypadek."), ("I need help as soon as possible.", "Potrzebuję pomocy tak szybko, jak to możliwe.")],
+    601: [("What would you like to order?", "Co chciałbyś zamówić?"), ("That's all, thank you.", "To wszystko, dziękuję.")],
+    602: [("I'd like sweet and sour chicken.", "Poproszę kurczaka w sosie słodko-kwaśnym."), ("Which dish do you recommend?", "Które danie polecasz?")],
+    603: [("I'd like the sauce on the side.", "Poproszę sos osobno."), ("Could I add some prawns?", "Czy mogę dodać krewetki?")],
+    604: [("The entry code is 2468.", "Kod do wejścia to 2468."), ("Please call me when you arrive.", "Proszę zadzwonić do mnie po przyjeździe.")],
+    605: [("I'm standing next to the gate.", "Stoję obok bramy."), ("Could you wait for two minutes?", "Czy może pan/pani zaczekać dwie minuty?")],
+    606: [("Can I add a tip?", "Czy mogę dodać napiwek?"), ("Do you have change?", "Czy ma pan/pani wydać?")],
+    607: [("Could you send the missing item?", "Czy możecie dostarczyć brakujący produkt?"), ("How can we resolve this problem?", "Jak możemy rozwiązać ten problem?")],
+    608: [("The delivery driver was very polite.", "Kurier był bardzo uprzejmy."), ("I would order from this restaurant again.", "Zamówiłbym ponownie z tej restauracji.")],
+    609: [("What size would you like?", "Jaki rozmiar wybierasz?"), ("I'd like extra cheese, please.", "Poproszę dodatkowy ser.")],
+    610: [("I'd like beef, please.", "Poproszę wołowinę."), ("Could I have a cola with that?", "Czy mogę do tego prosić colę?")],
+    701: [("Do you have a big family?", "Czy masz dużą rodzinę?"), ("We have a lot in common.", "Mamy ze sobą wiele wspólnego.")],
+    702: [("How did you get into that hobby?", "Jak zainteresowałeś się tym hobby?"), ("I'd like to learn how to do it.", "Chciałbym nauczyć się to robić.")],
+    703: [("Are you free on Sunday?", "Masz czas w niedzielę?"), ("I'll let you know later.", "Dam ci znać później.")],
+    704: [("What's it about?", "O czym to jest?"), ("It wasn't really my cup of tea.", "To nie było w moim guście.")],
+    705: [("How long have you been training?", "Jak długo trenujesz?"), ("The final score was two–one.", "Końcowy wynik to dwa do jednego.")],
+    706: [("What was the most memorable part?", "Co było najbardziej pamiętną częścią?"), ("We had a wonderful time there.", "Świetnie się tam bawiliśmy.")],
+    707: [("Venice is famous for its canals.", "Wenecja słynie ze swoich kanałów."), ("The view from the bridge was wonderful.", "Widok z mostu był wspaniały.")],
+    708: [("From my point of view, it's useful.", "Z mojego punktu widzenia jest to przydatne."), ("Let me explain what I mean.", "Pozwól, że wyjaśnię, co mam na myśli.")],
+    709: [("I agree with you up to a point.", "Do pewnego stopnia się z tobą zgadzam."), ("That's one way of looking at it.", "To jeden ze sposobów patrzenia na tę sprawę.")],
+    801: [("I have attached my CV.", "Załączam swoje CV."), ("I am available to start immediately.", "Mogę rozpocząć pracę od zaraz.")],
+    802: [("Could you tell me more about the team?", "Czy mogą mi państwo opowiedzieć więcej o zespole?"), ("What are the next steps?", "Jakie są kolejne etapy?")],
+}
 
-  <!-- TTS panel -->
-  <div class="tts-panel" id="ttsPanel" aria-hidden="true">
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-      <b>🔊 Wymowa (brytyjski angielski)</b>
-      <button type="button" class="mini-btn" id="ttsClose">Zamknij</button>
-    </div>
-    <div class="hr"></div>
+for _lesson in LESSONS:
+    _lesson["required_phrases"].extend(new_phrases(*EXTRA_PHRASES.get(_lesson["id"], [])))
 
-    <label style="font-size:12px; opacity:.9">Głos</label>
-    <select id="ttsVoice" style="width:100%; margin:6px 0 10px 0;"></select>
+next(lesson for lesson in LESSONS if lesson["id"] == 201)["video"] = {
+    "title": "Ordering coffee — dialog w kawiarni",
+    "description": "Obejrzyj dialog, przeczytaj tłumaczenie i powtórz każdą kwestię podczas planszy „Powtórz”.",
+    "file": "videos/cafe_dialogue.mp4",
+    "poster": "images/cafe_video_poster.jpg",
+}
 
-    <div style="display:flex; justify-content:space-between; align-items:center;">
-      <label style="font-size:12px; opacity:.9">Szybkość</label>
-      <span id="ttsRateLabel" style="font-size:12px; opacity:.9">1.0×</span>
-    </div>
-    <input id="ttsRate" type="range" min="0.6" max="1.4" step="0.05" value="1.0" style="width:100%">
+DIALOGUES = {
+    602: {
+        "title": "Zamówienie azjatyckiego jedzenia",
+        "description": "Przećwicz rozmowę z pracownikiem restauracji, wybierz danie i określ poziom ostrości.",
+        "turns": [
+            ("Pracownik", "Good evening. What would you like to order?", "Dobry wieczór. Co chciałbyś zamówić?"),
+            ("Ty", "I'd like chicken pad thai, please.", "Poproszę pad thai z kurczakiem."),
+            ("Pracownik", "Would you like it mild, medium or spicy?", "Wolisz łagodne, średnio ostre czy ostre?"),
+            ("Ty", "Mildly spicy, please. No peanuts.", "Lekko ostre, proszę. Bez orzeszków ziemnych."),
+            ("Pracownik", "Would you like anything else?", "Czy chciałbyś coś jeszcze?"),
+            ("Ty", "Yes, a portion of spring rolls and some jasmine tea, please.", "Tak, poproszę porcję sajgonek i herbatę jaśminową."),
+            ("Pracownik", "Is that for collection or delivery?", "Czy to zamówienie z odbiorem czy z dostawą?"),
+            ("Ty", "I'd like it delivered, please.", "Poproszę o dostawę."),
+        ],
+    },
+    609: {
+        "title": "Telefoniczne zamówienie pizzy",
+        "description": "Zamów pizzę, wybierz rozmiar i ciasto oraz zmień dodatki.",
+        "turns": [
+            ("Pracownik", "Hello. What would you like to order?", "Dzień dobry. Co chciałbyś zamówić?"),
+            ("Ty", "I'd like a large pizza, please.", "Poproszę dużą pizzę."),
+            ("Pracownik", "Would you like a thin or thick crust?", "Wolisz cienkie czy grube ciasto?"),
+            ("Ty", "A thin crust, please.", "Poproszę cienkie ciasto."),
+            ("Pracownik", "What toppings would you like?", "Jakie dodatki wybierasz?"),
+            ("Ty", "Half pepperoni and half vegetables, with extra cheese.", "Pół pepperoni i pół z warzywami, z dodatkowym serem."),
+            ("Pracownik", "Would you like any sauces?", "Czy chciałbyś jakieś sosy?"),
+            ("Ty", "Two garlic sauces, please. That's everything, thank you.", "Poproszę dwa sosy czosnkowe. To wszystko, dziękuję."),
+        ],
+    },
+    610: {
+        "title": "Zamówienie kebaba",
+        "description": "Wybierz mięso, pieczywo, warzywa, sos i zestaw.",
+        "turns": [
+            ("Pracownik", "What can I get for you?", "Co mogę dla ciebie przygotować?"),
+            ("Ty", "I'd like a large chicken kebab, please.", "Poproszę dużego kebaba z kurczakiem."),
+            ("Pracownik", "Would you like it in a wrap or a bread roll?", "Wolisz kebab w tortilli czy w bułce?"),
+            ("Ty", "In a wrap, please, with extra vegetables.", "W tortilli, proszę, z dodatkowymi warzywami."),
+            ("Pracownik", "What sauce would you like?", "Jaki sos wybierasz?"),
+            ("Ty", "Mixed sauce, please, but only a little.", "Poproszę sos mieszany, ale tylko trochę."),
+            ("Pracownik", "Would you like to make it a meal?", "Czy chciałbyś zamówić to w zestawie?"),
+            ("Ty", "Yes, with large fries and a cola, please.", "Tak, z dużymi frytkami i colą, proszę."),
+        ],
+    },
+}
 
-    <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
-      <button type="button" class="mini-btn" id="ttsTest">Test</button>
-      <button type="button" class="mini-btn" id="ttsStop">Stop</button>
-    </div>
+MATERIALS = [
+    {"id": "past_to_be", "title": "Past Simple: to be (was / were)", "description": "Twierdzenia, przeczenia i szybkie przykłady.", "sections": [
+        {"title": "Forma twierdząca", "items": [("I / he / she / it was", "ja / on / ona / ono był(a/o)"), ("you / we / they were", "ty / wy / my / oni byli") ]},
+        {"title": "Forma przecząca", "items": [("was not = wasn’t", "forma skrócona"), ("were not = weren’t", "forma skrócona")]},
+        {"title": "Przykłady", "items": [("I was at home yesterday.", "Byłem / byłam wczoraj w domu."), ("She wasn’t happy.", "Ona nie była szczęśliwa."), ("We were tired after work.", "Byliśmy zmęczeni po pracy."), ("They weren’t at the airport.", "Oni nie byli na lotnisku.")]},
+    ]},
+    {"id": "adjectives_pack", "title": "Przymiotniki A1/A2", "description": "Praktyczny zestaw wraz z wymową.", "sections": [
+        {"title": "Lista", "items": [(a, b) for a, b in [
+            ("cheap", "tani"), ("expensive", "drogi"), ("boring", "nudny"), ("bored", "znudzony"), ("sad", "smutny"),
+            ("famous", "sławny"), ("light", "jasny / lekki"), ("awful", "okropny"), ("smart", "mądry / inteligentny"),
+            ("clever", "sprytny"), ("surprised", "zaskoczony"), ("heavy", "ciężki"), ("dirty", "brudny"), ("clean", "czysty"),
+            ("quiet", "cichy"), ("modern", "nowoczesny"), ("old-fashioned", "staromodny"), ("angry", "zły"),
+            ("worried", "zmartwiony"), ("nervous", "zdenerwowany"), ("confident", "pewny siebie"), ("excited", "podekscytowany")]]},
+    ]},
+]
 
-    <div style="font-size:12px; opacity:.8; margin-top:8px;">
-      Ustawienia zapisują się w przeglądarce (głos + szybkość). Domyślnie wybieramy głos <b>en-GB</b>, jeśli jest dostępny.
-    </div>
-  </div>
 
-  <script>
-  (function(){
-    const panel = document.getElementById('ttsPanel');
-    const openBtn = document.getElementById('ttsOpen');
-    const closeBtn = document.getElementById('ttsClose');
-    const voiceSel = document.getElementById('ttsVoice');
-    const rateInp = document.getElementById('ttsRate');
-    const rateLbl = document.getElementById('ttsRateLabel');
-    const testBtn = document.getElementById('ttsTest');
-    const stopBtn = document.getElementById('ttsStop');
+def seed_words() -> Dict[str, Word]:
+    seed = []
+    for lesson in LESSONS[:4]:
+        seed.extend((p["en"], p["pl"], [f"lesson{lesson['id']}"]) for p in lesson["required_phrases"])
+    return {f"w{i:04d}": Word(f"w{i:04d}", en, pl, tags=tags, created_at=now_iso())
+            for i, (en, pl, tags) in enumerate(seed, 1)}
 
-    const LS_VOICE = "tts_voice_uri";
-    const LS_RATE = "tts_rate";
 
-    function getRate(){
-      const v = parseFloat(localStorage.getItem(LS_RATE) || "1.0");
-      return isNaN(v) ? 1.0 : v;
-    }
-    function setRate(v){ localStorage.setItem(LS_RATE, String(v)); }
-    function getVoiceUri(){ return localStorage.getItem(LS_VOICE) || ""; }
-    function setVoiceUri(uri){ localStorage.setItem(LS_VOICE, uri); }
+def save_words(words: Dict[str, Word]) -> None:
+    DATA_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = DATA_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"words": [word.to_dict() for word in words.values()]}, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporary.replace(DATA_FILE)
 
-    function showPanel(){ panel.classList.add('show'); panel.setAttribute('aria-hidden','false'); }
-    function hidePanel(){ panel.classList.remove('show'); panel.setAttribute('aria-hidden','true'); }
 
-    openBtn && openBtn.addEventListener('click', (e)=>{ e.preventDefault(); showPanel(); });
-    closeBtn && closeBtn.addEventListener('click', hidePanel);
+def load_words() -> Dict[str, Word]:
+    if not DATA_FILE.exists():
+        words = seed_words()
+        save_words(words)
+        return words
+    try:
+        raw = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+        words = {item.get("id", ""): Word.from_dict(item) for item in raw.get("words", []) if item.get("id")}
+        return words
+    except (OSError, json.JSONDecodeError, TypeError) as error:
+        raise RuntimeError(f"Nie można odczytać pliku danych: {DATA_FILE}") from error
 
-    function stopSpeak(){ if ('speechSynthesis' in window) window.speechSynthesis.cancel(); }
-    stopBtn && stopBtn.addEventListener('click', stopSpeak);
 
-    function loadVoices(){
-      if(!('speechSynthesis' in window)) return;
-      const voices = window.speechSynthesis.getVoices() || [];
-      const saved = getVoiceUri();
-      voiceSel.innerHTML = "";
-      voices.forEach(v=>{
-        const opt = document.createElement('option');
-        opt.value = v.voiceURI;
-        opt.textContent = `${v.name} (${v.lang})${v.default ? " • domyślny" : ""}`;
-        if (v.voiceURI === saved) opt.selected = true;
-        voiceSel.appendChild(opt);
-      });
+def missing_phrases(words: Dict[str, Word], lesson: dict) -> list:
+    existing = {(norm(w.en), norm(w.pl)) for w in words.values()}
+    return [p for p in lesson["required_phrases"] if (norm(p["en"]), norm(p["pl"])) not in existing]
 
-      if(!saved && voices.length){
-        const lower = (s)=> (s || "").toLowerCase();
-        let pref =
-          voices.find(v => lower(v.lang).startsWith("en-gb")) ||
-          voices.find(v => lower(v.name).includes("uk english")) ||
-          voices.find(v => lower(v.lang).startsWith("en-")) ||
-          voices[0];
 
-        if(pref){
-          setVoiceUri(pref.voiceURI);
-          [...voiceSel.options].forEach(o=> o.selected = (o.value === pref.voiceURI));
-        }
-      }
-    }
+def tts(text: str) -> str:
+    return f'<button class="listen" type="button" data-speak="{escape(text)}" aria-label="Odsłuchaj: {escape(text)}">▶</button>'
 
-    if ('speechSynthesis' in window){
-      window.speechSynthesis.onvoiceschanged = loadVoices;
-      loadVoices();
-    }
 
-    const initRate = getRate();
-    rateInp.value = initRate;
-    rateLbl.textContent = initRate.toFixed(2) + "×";
-    rateInp.addEventListener('input', ()=>{
-      const v = parseFloat(rateInp.value);
-      rateLbl.textContent = v.toFixed(2) + "×";
-      setRate(v);
-    });
+BASE_HTML = r"""
+<!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ page_title }} · {{ app_title }}</title>
+<style>
+:root{--bg:#f5f7fb;--surface:#fff;--ink:#122033;--muted:#68758a;--line:#e3e8f0;--primary:#3157e3;--primary2:#6846d6;--good:#11845b;--warn:#c26b16;--danger:#c94154;--shadow:0 14px 40px rgba(28,43,76,.09)}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}
+.nav{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.88);backdrop-filter:blur(18px);border-bottom:1px solid rgba(227,232,240,.8)}.nav-inner{max-width:1180px;margin:auto;padding:13px 22px;display:flex;align-items:center;gap:24px}.brand{display:flex;align-items:center;gap:11px;font-weight:850;font-size:19px}.logo{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;color:white;background:linear-gradient(135deg,var(--primary),var(--primary2));box-shadow:0 8px 18px rgba(49,87,227,.25)}.links{display:flex;gap:6px;margin-left:auto}.links a{padding:9px 13px;border-radius:11px;color:var(--muted);font-weight:650}.links a:hover,.links a.active{color:var(--primary);background:#eef2ff}.menu{display:none;margin-left:auto;border:0;background:#eef2ff;padding:9px 12px;border-radius:10px}
+.shell{max-width:1180px;margin:auto;padding:34px 22px 64px}.hero{position:relative;overflow:hidden;padding:34px;border-radius:26px;background:linear-gradient(135deg,#172b63,#3157e3 58%,#7146d8);color:white;box-shadow:0 20px 55px rgba(39,62,135,.22)}.hero:after{content:"";position:absolute;width:280px;height:280px;border-radius:50%;right:-80px;top:-120px;background:rgba(255,255,255,.11)}.hero h1{max-width:720px;margin:0 0 9px;font-size:clamp(30px,5vw,52px);line-height:1.08;letter-spacing:-.04em}.hero p{max-width:700px;margin:0;color:#dce5ff;font-size:18px}
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px;margin-top:20px}.span-8{grid-column:span 8}.span-4{grid-column:span 4}.span-6{grid-column:span 6}.card{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:22px;box-shadow:var(--shadow)}.card h2,.card h3{margin:0}.sub{color:var(--muted);margin:6px 0 0}.eyebrow{display:block;color:var(--primary);font-size:12px;font-weight:850;letter-spacing:.11em;text-transform:uppercase;margin-bottom:7px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat{padding:17px;background:#f7f9fd;border:1px solid var(--line);border-radius:16px}.stat strong{display:block;font-size:27px;line-height:1.15}.stat span{color:var(--muted);font-size:13px}
+.field{display:flex;flex-direction:column;gap:7px}.field label{font-weight:720;font-size:14px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.full{grid-column:1/-1}input,textarea,select{width:100%;border:1px solid #d8dfeb;border-radius:12px;padding:12px 14px;background:#fbfcff;color:var(--ink);outline:none}textarea{min-height:96px;resize:vertical}input:focus,textarea:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(49,87,227,.11);background:white}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:16px}.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:12px;padding:10px 15px;font-weight:750;cursor:pointer;background:var(--primary);color:#fff;box-shadow:0 7px 16px rgba(49,87,227,.18)}.btn:hover{transform:translateY(-1px);filter:brightness(1.04)}.btn.secondary{background:#edf1f8;color:var(--ink);box-shadow:none}.btn.danger{background:#fff0f2;color:var(--danger);box-shadow:none}.btn.small{padding:8px 11px;font-size:13px}.section-head{display:flex;justify-content:space-between;align-items:end;gap:16px;margin:30px 0 14px}.section-head h1,.section-head h2{margin:0;letter-spacing:-.025em}.stack{display:flex;flex-direction:column;gap:12px}.lesson{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:17px}.lesson-number{display:grid;place-items:center;width:48px;height:48px;border-radius:15px;background:#eef2ff;color:var(--primary);font-weight:850}.badge,.tag{display:inline-flex;padding:4px 9px;border-radius:999px;background:#eef2ff;color:var(--primary);font-size:12px;font-weight:750}.tag{margin:3px 5px 0 0;background:#f0f3f7;color:#59677b}.progress{height:7px;background:#e9edf4;border-radius:99px;overflow:hidden;margin-top:10px}.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--primary),#7a52df);border-radius:99px}.meta{display:flex;gap:12px;align-items:center;color:var(--muted);font-size:13px;margin-top:8px}.word{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:15px}.word-en{font-size:20px;font-weight:800}.translation{color:var(--muted);font-size:17px}.listen{display:inline-grid;place-items:center;width:34px;height:34px;margin-left:6px;border:0;border-radius:10px;background:#eef2ff;color:var(--primary);cursor:pointer;font-size:12px}.listen:hover{background:var(--primary);color:white}.practice-actions{display:flex;max-width:270px;align-items:flex-end;justify-content:center;flex-direction:column;gap:7px}.speech-result{max-width:270px;color:var(--muted);font-size:13px;text-align:right}.speech-result.good{color:var(--good)}.speech-result.try{color:var(--warn)}.practice-btn.listening{background:#fff0f2;color:var(--danger)}.dialogue{margin-bottom:20px;background:linear-gradient(135deg,#fff,#f6f8ff)}.dialogue-turns{display:flex;flex-direction:column;gap:10px;margin-top:18px}.dialogue-line{max-width:82%;padding:14px 16px;border-radius:17px;background:#edf1f8}.dialogue-line.you{align-self:flex-end;background:#e9eeff;border:1px solid #ced8ff}.dialogue-role{font-size:12px;font-weight:850;color:var(--primary);text-transform:uppercase;letter-spacing:.07em}.dialogue-en{font-size:17px;font-weight:760;margin-top:3px}.dialogue-pl{color:var(--muted);font-size:14px;margin-top:2px}.flash{padding:13px 16px;margin-bottom:15px;border-radius:13px;background:#e9f8f2;color:#086c49;border:1px solid #bde8d7}.flash.err{background:#fff0f2;color:#a52b3d;border-color:#f4c8cf}.empty{text-align:center;padding:48px;color:var(--muted)}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:13px 10px;border-bottom:1px solid var(--line)}th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}.audio-panel{position:fixed;right:20px;bottom:20px;z-index:30;width:min(360px,calc(100vw - 40px));display:none}.audio-panel.open{display:block}.audio-top{display:flex;justify-content:space-between;align-items:center}.audio-panel .card{box-shadow:0 24px 70px rgba(21,31,55,.28)}
+@media(max-width:850px){.span-8,.span-4,.span-6{grid-column:1/-1}.links{display:none;position:absolute;left:14px;right:14px;top:66px;padding:10px;flex-direction:column;background:white;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}.links.open{display:flex}.menu{display:block}.lesson{grid-template-columns:auto 1fr}.lesson>.actions{grid-column:1/-1;margin:0}.stats{grid-template-columns:1fr 1fr 1fr}}
+@media(max-width:560px){body{font-size:15px}.shell{padding:22px 14px 48px}.nav-inner{padding:11px 14px}.brand span{display:none}.hero{padding:25px 21px;border-radius:20px}.hero p{font-size:16px}.card{padding:17px;border-radius:17px}.form-grid{grid-template-columns:1fr}.stats{grid-template-columns:1fr}.lesson{grid-template-columns:1fr}.lesson-number{display:none}.word{grid-template-columns:1fr}.word>.actions{margin-top:0}}
+</style></head><body>
+<nav class="nav"><div class="nav-inner"><a class="brand" href="{{ url_for('home') }}"><b class="logo">GB</b><span>English Trainer</span></a><button class="menu" id="menu">Menu</button><div class="links" id="links">
+{% for endpoint,label in [('home','Start'),('lessons_list','Lekcje'),('words_page','Słownik'),('materials_list','Materiały')] %}<a class="{{ 'active' if request.endpoint == endpoint else '' }}" href="{{ url_for(endpoint) }}">{{ label }}</a>{% endfor %}<a href="#" id="audioOpen">Audio</a></div></div></nav>
+<main class="shell">{% with messages=get_flashed_messages(with_categories=true) %}{% for category,message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}{% endwith %}{{ body|safe }}</main>
+<aside class="audio-panel" id="audioPanel"><div class="card"><div class="audio-top"><div><span class="eyebrow">Ustawienia</span><h3>Wymowa brytyjska</h3></div><button class="btn small secondary" id="audioClose">Zamknij</button></div><div class="field" style="margin-top:16px"><label>Głos</label><select id="voice"></select></div><div class="field" style="margin-top:12px"><label>Szybkość: <span id="rateLabel">1.00×</span></label><input id="rate" type="range" min="0.6" max="1.4" step="0.05" value="1"></div><div class="actions"><button class="btn small" id="testVoice">Test głosu</button><button class="btn small secondary" id="stopVoice">Stop</button></div></div></aside>
+<script>
+const $=s=>document.querySelector(s), synth=window.speechSynthesis; $('#menu').onclick=()=>$('#links').classList.toggle('open'); $('#audioOpen').onclick=e=>{e.preventDefault();$('#audioPanel').classList.add('open')}; $('#audioClose').onclick=()=>$('#audioPanel').classList.remove('open');
+const voice=$('#voice'),rate=$('#rate'),rateLabel=$('#rateLabel'); rate.value=localStorage.ttsRate||1; rateLabel.textContent=(+rate.value).toFixed(2)+'×'; rate.oninput=()=>{localStorage.ttsRate=rate.value;rateLabel.textContent=(+rate.value).toFixed(2)+'×'};
+function voices(){if(!synth)return;const all=synth.getVoices();voice.innerHTML='';all.forEach(v=>{const o=new Option(v.name+' ('+v.lang+')',v.voiceURI);voice.add(o)});const saved=localStorage.ttsVoice;const preferred=all.find(v=>v.voiceURI===saved)||all.find(v=>v.lang.toLowerCase().startsWith('en-gb'))||all.find(v=>v.lang.toLowerCase().startsWith('en'));if(preferred)voice.value=preferred.voiceURI}if(synth){synth.onvoiceschanged=voices;voices()}voice.onchange=()=>localStorage.ttsVoice=voice.value;
+function speak(text){if(!synth)return alert('Ta przeglądarka nie obsługuje syntezatora mowy.');synth.cancel();const u=new SpeechSynthesisUtterance(text),selected=synth.getVoices().find(v=>v.voiceURI===voice.value);if(selected)u.voice=selected;u.lang='en-GB';u.rate=+rate.value;synth.speak(u)}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-speak]');if(b)speak(b.dataset.speak)});$('#testVoice').onclick=()=>speak('Hello! Welcome to your English lesson.');$('#stopVoice').onclick=()=>synth&&synth.cancel();
 
-    voiceSel.addEventListener('change', ()=> setVoiceUri(voiceSel.value));
+// Nauka mówienia: rozpoznaj wypowiedź, pokaż usłyszany tekst i oceń zgodność.
+const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+function speechNorm(text){return (text||'').toLowerCase().replace(/[^a-z0-9\s]/g,'').replace(/\s+/g,' ').trim()}
+function editDistance(a,b){const row=Array.from({length:b.length+1},(_,i)=>i);for(let i=1;i<=a.length;i++){let prev=row[0];row[0]=i;for(let j=1;j<=b.length;j++){const old=row[j];row[j]=Math.min(row[j]+1,row[j-1]+1,prev+(a[i-1]===b[j-1]?0:1));prev=old}}return row[b.length]}
+function speechScore(expected,heard){const a=speechNorm(expected),b=speechNorm(heard);return Math.round((1-editDistance(a,b)/Math.max(a.length,b.length,1))*100)}
+let activeRecognition=null;
+document.addEventListener('click',e=>{
+  const button=e.target.closest('[data-practice]');if(!button)return;
+  if(!SpeechRecognition){alert('Rozpoznawanie mowy nie jest dostępne w tej przeglądarce. Użyj Chrome lub Edge i zezwól na dostęp do mikrofonu.');return}
+  if(activeRecognition){activeRecognition.abort();activeRecognition=null}
+  const expected=button.dataset.practice,container=button.closest('.practice-actions,.dialogue-line'),result=container.querySelector('.speech-result');
+  const recognition=new SpeechRecognition();activeRecognition=recognition;recognition.lang='en-GB';recognition.interimResults=false;recognition.maxAlternatives=1;
+  button.classList.add('listening');button.textContent='● Słucham…';result.className='speech-result';result.textContent='Powiedz teraz cały zwrot po angielsku.';
+  recognition.onresult=event=>{const heard=event.results[0][0].transcript,score=speechScore(expected,heard),good=score>=82;result.className='speech-result '+(good?'good':'try');result.textContent=(good?'✓ Bardzo dobrze! ':'Spróbuj ponownie. ')+'Usłyszałem: „'+heard+'” · '+score+'%';};
+  recognition.onerror=event=>{result.className='speech-result try';result.textContent=event.error==='not-allowed'?'Włącz dostęp do mikrofonu w przeglądarce.':'Nie udało się rozpoznać wypowiedzi. Spróbuj ponownie.';};
+  recognition.onend=()=>{button.classList.remove('listening');button.textContent='🎤 Powiedz';if(activeRecognition===recognition)activeRecognition=null};
+  recognition.start();
+});
+document.addEventListener('click',e=>{
+  const button=e.target.closest('[data-dialogue-play]');if(!button)return;
+  if(!synth){alert('Ta przeglądarka nie obsługuje syntezatora mowy.');return}
+  synth.cancel();button.closest('.dialogue').querySelectorAll('[data-dialogue-text]').forEach(line=>{
+    const utterance=new SpeechSynthesisUtterance(line.dataset.dialogueText),isYou=line.dataset.role==='Ty',selected=roleVoice(isYou?'customer':'barista');
+    if(selected)utterance.voice=selected;utterance.lang='en-GB';utterance.rate=.88;utterance.pitch=isYou?.94:1.06;synth.speak(utterance);
+  });
+});
 
-    function pickVoice(){
-      const uri = getVoiceUri();
-      const voices = ('speechSynthesis' in window) ? (window.speechSynthesis.getVoices() || []) : [];
-      return voices.find(v=> v.voiceURI === uri) || null;
-    }
-
-    function speak(text){
-      if(!('speechSynthesis' in window)){
-        alert("Brak wsparcia TTS w tej przeglądarce.");
-        return;
-      }
-      stopSpeak();
-      const u = new SpeechSynthesisUtterance(text);
-      const v = pickVoice();
-      if(v) u.voice = v;
-      u.rate = getRate();
-      u.pitch = 1.0;
-      u.volume = 1.0;
-      window.speechSynthesis.speak(u);
-    }
-
-    testBtn && testBtn.addEventListener('click', ()=> speak("Hello! This is a British English test."));
-    document.addEventListener('click', (e)=>{
-      const btn = e.target.closest('.tts-btn');
-      if(!btn) return;
-      const txt = btn.getAttribute('data-tts') || "";
-      if(!txt) return;
-      speak(txt);
-    });
-  })();
-  </script>
-</body>
-</html>
+// Film „Kawiarnia”: dialog jest odtwarzany przez głosy zainstalowane w
+// przeglądarce. Kliknięcie użytkownika pozwala uruchomić dźwięk zgodnie z
+// zasadami automatycznego odtwarzania obowiązującymi w przeglądarkach.
+const cafeVideo=$('#cafeLessonVideo'),cafePlay=$('#playCafeDialogue');
+const cafeCues=[
+  {time:3.55,role:'barista',text:'Good morning! What coffee would you like?'},
+  {time:10.55,role:'customer',text:"I'd like a cappuccino, please."},
+  {time:17.55,role:'barista',text:'Would you like any sugar?'},
+  {time:24.55,role:'customer',text:'No, thank you. Without sugar.'},
+  {time:31.55,role:'barista',text:'Is that for here or to take away?'},
+  {time:38.55,role:'customer',text:'To take away, please.'}
+];
+let cafeCueIndex=0,cafeDialogueActive=false;
+function clearCafeDialogue(){cafeDialogueActive=false;cafeCueIndex=0;if(synth)synth.cancel()}
+function britishVoices(){return synth?(synth.getVoices()||[]).filter(v=>(v.lang||'').toLowerCase().startsWith('en-gb')):[]}
+function roleVoice(role){
+  const all=britishVoices(),female=/sonia|libby|hazel|susan|female/i,male=/ryan|george|daniel|male/i;
+  return all.find(v=>(role==='barista'?female:male).test(v.name))||all[role==='barista'?0:Math.min(1,all.length-1)]||null;
+}
+function speakRole(cue){
+  if(!synth)return;
+  const u=new SpeechSynthesisUtterance(cue.text),v=roleVoice(cue.role);
+  if(v)u.voice=v;u.lang='en-GB';u.rate=.88;u.pitch=cue.role==='barista'?1.08:.92;u.volume=1;synth.speak(u);
+}
+if(cafePlay&&cafeVideo){
+  cafePlay.addEventListener('click',()=>{
+    if(!synth){alert('Ta przeglądarka nie obsługuje syntezatora mowy. Otwórz aplikację w Chrome lub Edge.');return}
+    clearCafeDialogue();cafeVideo.pause();cafeVideo.currentTime=3.25;cafeVideo.muted=false;
+    cafeDialogueActive=true;cafeCueIndex=1;
+    // Pierwszy głos musi zostać uruchomiony bezpośrednio w obsłudze kliknięcia,
+    // inaczej część przeglądarek potraktuje go jak zablokowany autoplay.
+    speakRole(cafeCues[0]);
+    const playPromise=cafeVideo.play();if(playPromise)playPromise.catch(()=>{});
+    cafePlay.textContent='↻ Odtwórz dialog ponownie';
+  });
+  cafeVideo.addEventListener('timeupdate',()=>{
+    if(!cafeDialogueActive||cafeCueIndex>=cafeCues.length)return;
+    const cue=cafeCues[cafeCueIndex];
+    if(cafeVideo.currentTime>=cue.time){speakRole(cue);cafeCueIndex+=1}
+  });
+  cafeVideo.addEventListener('pause',()=>{if(!cafeVideo.ended&&cafeDialogueActive&&synth)synth.pause()});
+  cafeVideo.addEventListener('play',()=>{if(cafeDialogueActive&&synth&&synth.paused)synth.resume()});
+  cafeVideo.addEventListener('ended',clearCafeDialogue);
+}
+</script></body></html>
 """
 
 
-def render(body_html: str, **ctx):
-    return render_template_string(BASE_HTML, title=APP_TITLE, body=body_html, **ctx)
+def render(body: str, page_title: str):
+    return render_template_string(BASE_HTML, body=body, page_title=page_title, app_title=APP_TITLE)
 
-
-# ============================
-# ROUTES
-# ============================
 
 @app.route("/")
 def home():
     words = load_words()
-    total = len(words)
-
-    body = f"""
-    <div class="card">
-      <div class="big">Twoja nauka angielskiego 🇬🇧</div>
-      <p class="muted">
-        Dodajesz własne zwroty do słownika, a lekcje pokazują, czy wszystko już masz w bazie.
-        <br>Każde wyrażenie ma przycisk 🔊 z wymową w <b>brytyjskim</b> angielskim (jeśli głos jest dostępny w przeglądarce).
-      </p>
-    </div>
-
-    <div class="hr"></div>
-
-    <div class="grid">
-      <div class="card">
-        <h2>Dodaj nowe słówko</h2>
-        <form method="post" action="{url_for('add_word')}">
-          <div class="row">
-            <div>
-              <label>Angielski</label>
-              <input name="en" placeholder="np. Where can I buy a ticket?" required>
-            </div>
-            <div>
-              <label>Polski</label>
-              <input name="pl" placeholder="np. Gdzie mogę kupić bilet?" required>
-            </div>
-          </div>
-          <div class="row" style="margin-top:10px">
-            <div>
-              <label>Tagi (po przecinku)</label>
-              <input name="tags" placeholder="np. lesson5, london, tickets">
-            </div>
-            <div>
-              <label>Przykład zdania</label>
-              <input name="example" placeholder="np. Can I buy a ticket online?">
-            </div>
-          </div>
-          <div style="margin-top:10px">
-            <label>Notatki</label>
-            <textarea name="notes" placeholder="np. wymowa, synonimy..."></textarea>
-          </div>
-          <div class="actions" style="margin-top:12px">
-            <button class="btn" type="submit">Dodaj słówko</button>
-            <a class="btn btn-ghost" href="{url_for('lessons_list')}">Lekcje</a>
-            <a class="btn btn-ghost" href="{url_for('materials_list')}">Materiały</a>
-          </div>
-        </form>
-      </div>
-
-      <div class="card">
-        <h2>Podsumowanie</h2>
-        <p class="muted">Słówka w bazie: <b>{total}</b></p>
-        <div class="hr"></div>
-        <p class="muted">
-          Wejdź w <b>Lekcje</b>, żeby sprawdzić, czy wszystkie zwroty danej lekcji są już w Twoim słowniku.
-        </p>
-        <div class="actions" style="margin-top:10px">
-          <a class="btn" href="{url_for('lessons_list')}">Przejdź do lekcji</a>
-          <a class="btn btn-ghost" href="{url_for('words_page')}">Otwórz słownik</a>
-        </div>
-      </div>
-    </div>
-    """
-    return render(body)
+    completed = sum(not missing_phrases(words, lesson) for lesson in LESSONS)
+    tags = {tag for word in words.values() for tag in word.tags}
+    body = render_template_string(r"""
+    <section class="hero"><span class="eyebrow" style="color:#bfcfff">Twój angielski. Twój rytm.</span><h1>Ucz się zwrotów, których naprawdę użyjesz.</h1><p>Buduj własny słownik, ćwicz wymowę i obserwuj postęp w praktycznych lekcjach.</p><div class="actions"><a class="btn" style="background:white;color:#3157e3" href="{{ url_for('lessons_list') }}">Rozpocznij naukę</a><a class="btn secondary" href="{{ url_for('words_page') }}">Otwórz słownik</a></div></section>
+    <div class="grid"><section class="card span-8"><span class="eyebrow">Nowy zwrot</span><h2>Dodaj do słownika</h2><p class="sub">Zapisz tłumaczenie, przykład i własne notatki.</p><form method="post" action="{{ url_for('add_word') }}" style="margin-top:18px"><div class="form-grid"><div class="field"><label>Angielski</label><input name="en" placeholder="Where can I buy a ticket?" required></div><div class="field"><label>Polski</label><input name="pl" placeholder="Gdzie mogę kupić bilet?" required></div><div class="field"><label>Tagi</label><input name="tags" placeholder="london, tickets"></div><div class="field"><label>Przykład</label><input name="example" placeholder="Can I buy a ticket online?"></div><div class="field full"><label>Notatki</label><textarea name="notes" placeholder="Wymowa, synonimy, kontekst..."></textarea></div></div><button class="btn" type="submit" style="margin-top:15px">Dodaj zwrot</button></form></section>
+    <aside class="card span-4"><span class="eyebrow">Postęp</span><h2>Twoje statystyki</h2><div class="stats" style="margin-top:18px"><div class="stat"><strong>{{ total }}</strong><span>zwrotów</span></div><div class="stat"><strong>{{ completed }}</strong><span>ukończonych lekcji</span></div><div class="stat"><strong>{{ tags }}</strong><span>tagów</span></div></div><p class="sub" style="margin-top:18px">Każdy dodany zwrot przybliża Cię do ukończenia kolejnej lekcji.</p></aside></div>
+    """, total=len(words), completed=completed, tags=len(tags))
+    return render(body, "Start")
 
 
-# ----------------------------
-# MATERIAŁY
-# ----------------------------
-
-@app.route("/materials")
-def materials_list():
-    cards = ""
-    for m in MATERIALS:
-        cards += f"""
-        <div class="card">
-          <h3 style="margin:0 0 6px 0">{m["title"]}</h3>
-          <div class="actions" style="margin-top:10px">
-            <a class="btn" href="{url_for('material_view', material_id=m['id'])}">Otwórz</a>
-          </div>
-        </div>
-        """
-
-    body = f"""
-    <div class="card">
-      <h2>Materiały</h2>
-      <p class="muted">
-        Teoria/gramatyka w pigułce. Możesz do nich wracać w dowolnym momencie.
-      </p>
-    </div>
-    <div class="hr"></div>
-    <div class="list">{cards}</div>
-    """
-    return render(body)
-
-
-@app.route("/materials/<material_id>")
-def material_view(material_id: str):
-    m = next((x for x in MATERIALS if x["id"] == material_id), None)
-    if not m:
-        flash("Nie znaleziono materiału.", "err")
-        return redirect(url_for("materials_list"))
-
-    sections_html = ""
-    for sec in m.get("sections", []):
-        rows = ""
-        for it in sec.get("items", []):
-            rows += f"<tr><td><b>{it['en']}</b> {tts_btn(it['en'])}</td><td>{it['pl']}</td></tr>"
-        sections_html += f"""
-        <div class="card">
-          <h3 style="margin:0 0 10px 0">{sec["title"]}</h3>
-          <table>
-            <thead><tr><th>EN</th><th>PL</th></tr></thead>
-            <tbody>{rows}</tbody>
-          </table>
-        </div>
-        """
-
-    ex_rows = ""
-    for e in m.get("examples", []):
-        ex_rows += f"<tr><td><b>{e['en']}</b> {tts_btn(e['en'])}</td><td>{e['pl']}</td></tr>"
-    examples_html = f"""
-    <div class="card">
-      <h3 style="margin:0 0 10px 0">Przykłady</h3>
-      <table>
-        <thead><tr><th>EN</th><th>PL</th></tr></thead>
-        <tbody>{ex_rows}</tbody>
-      </table>
-    </div>
-    """ if m.get("examples") else ""
-
-    body = f"""
-    <div class="card">
-      <h2>{m["title"]}</h2>
-      <div class="actions" style="margin-top:10px">
-        <a class="btn btn-ghost" href="{url_for('materials_list')}">Wróć</a>
-        <a class="btn btn-ghost" href="{url_for('lessons_list')}">Lekcje</a>
-      </div>
-    </div>
-    <div class="hr"></div>
-    <div class="list">
-      {sections_html}
-      {examples_html}
-    </div>
-    """
-    return render(body)
-
-
-# ----------------------------
-# SŁOWNIK
-# ----------------------------
-
-@app.route("/add", methods=["POST"])
+@app.post("/add")
 def add_word():
     words = load_words()
-
-    en = (request.form.get("en", "") or "").strip()
-    pl = (request.form.get("pl", "") or "").strip()
+    en, pl = request.form.get("en", "").strip(), request.form.get("pl", "").strip()
     if not en or not pl:
-        flash("Uzupełnij angielski i polski.", "err")
+        flash("Uzupełnij tekst angielski i polski.", "err")
         return redirect(url_for("home"))
-
-    tags_raw = (request.form.get("tags", "") or "").strip()
-    tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
-
-    wid = f"w{(len(words) + 1):04d}"
-    w = Word(
-        id=wid,
-        en=en,
-        pl=pl,
-        example=(request.form.get("example", "") or "").strip(),
-        notes=(request.form.get("notes", "") or "").strip(),
-        tags=tags,
-        created_at=now_iso(),
-    )
-    words[w.id] = w
+    word_id = "w" + uuid4().hex[:10]
+    words[word_id] = Word(word_id, en, pl, request.form.get("example", "").strip(), request.form.get("notes", "").strip(),
+                          [tag.strip() for tag in request.form.get("tags", "").split(",") if tag.strip()], now_iso())
     save_words(words)
-
-    flash("Dodano słówko ✅", "ok")
+    flash("Zwrot został dodany do słownika.")
     return redirect(url_for("words_page"))
 
 
 @app.route("/words")
 def words_page():
     words = load_words()
-    q = (request.args.get("q", "") or "").strip().lower()
-    tag = (request.args.get("tag", "") or "").strip()
-
-    items = list(words.values())
-    if q:
-        items = [w for w in items if q in w.en.lower() or q in w.pl.lower() or q in (w.example or "").lower()]
-    if tag:
-        items = [w for w in items if tag in (w.tags or [])]
-
-    items.sort(key=lambda w: w.created_at, reverse=True)
-    all_tags = sorted({t for w in words.values() for t in (w.tags or [])})
-
-    def card(w: Word) -> str:
-        tags_html = "".join([f'<span class="pill">{t}</span>' for t in (w.tags or [])])
-        return f"""
-        <div class="card">
-          <div style="display:flex; justify-content:space-between; gap:12px; align-items:flex-start">
-            <div>
-              <h3 style="margin:0 0 6px 0">{w.en} {tts_btn(w.en)} <span class="muted">→</span> {w.pl}</h3>
-              <div>{tags_html}</div>
-              <div class="muted" style="margin-top:6px">{("Przykład: " + w.example) if w.example else ""}</div>
-              <div class="muted" style="margin-top:6px">Dodano: {w.created_at or "-"}</div>
-              {f'<div class="muted" style="margin-top:8px">{w.notes}</div>' if w.notes else ''}
-            </div>
-            <div class="actions">
-              <a class="btn btn-ghost" href="{url_for('edit_word', wid=w.id)}">Edytuj</a>
-              <form method="post" action="{url_for('delete_word', wid=w.id)}" onsubmit="return confirm('Usunąć to słówko?');">
-                <button class="btn" type="submit">Usuń</button>
-              </form>
-            </div>
-          </div>
-        </div>
-        """
-
-    cards = "".join([card(w) for w in items]) if items else '<div class="card muted">Brak wyników.</div>'
-    tags_links = " ".join([f'<a class="pill" href="{url_for("words_page", tag=t)}">{t}</a>' for t in all_tags]) or "<span class='muted'>Brak tagów.</span>"
-
-    body = f"""
-    <div class="grid">
-      <div class="card">
-        <h2>Słownik</h2>
-        <form method="get" action="{url_for('words_page')}">
-          <div class="row">
-            <div><input name="q" value="{q}" placeholder="Szukaj (en/pl/przykład)"></div>
-            <div>
-              <select name="tag">
-                <option value="">(filtr tag)</option>
-                {''.join([f'<option value="{t}" {"selected" if t==tag else ""}>{t}</option>' for t in all_tags])}
-              </select>
-            </div>
-          </div>
-          <div class="actions" style="margin-top:10px">
-            <button class="btn" type="submit">Szukaj</button>
-            <a class="btn btn-ghost" href="{url_for('words_page')}">Reset</a>
-          </div>
-        </form>
-        <div class="hr"></div>
-        <div class="muted">Tagi: {tags_links}</div>
-      </div>
-
-      <div class="card">
-        <h2>Szybkie akcje</h2>
-        <div class="actions">
-          <a class="btn" href="{url_for('lessons_list')}">Lekcje</a>
-          <a class="btn btn-ghost" href="{url_for('materials_list')}">Materiały</a>
-        </div>
-      </div>
-    </div>
-
-    <div class="hr"></div>
-    <div class="list">{cards}</div>
-    """
-    return render(body)
+    query, selected_tag = request.args.get("q", "").strip(), request.args.get("tag", "").strip()
+    items = sorted(words.values(), key=lambda item: item.created_at, reverse=True)
+    if query:
+        needle = query.casefold()
+        items = [w for w in items if needle in " ".join((w.en, w.pl, w.example, w.notes)).casefold()]
+    if selected_tag:
+        items = [w for w in items if selected_tag in w.tags]
+    all_tags = sorted({tag for word in words.values() for tag in word.tags})
+    cards = "".join(render_template_string(r"""<article class="card word"><div><div class="word-en">{{ w.en }} {{ tts(w.en)|safe }}</div><div class="translation">{{ w.pl }}</div>{% if w.tags %}<div style="margin-top:8px">{% for tag in w.tags %}<span class="tag">{{ tag }}</span>{% endfor %}</div>{% endif %}{% if w.example %}<p class="sub"><b>Przykład:</b> {{ w.example }}</p>{% endif %}{% if w.notes %}<p class="sub"><b>Notatka:</b> {{ w.notes }}</p>{% endif %}</div><div class="actions"><a class="btn small secondary" href="{{ url_for('edit_word', wid=w.id) }}">Edytuj</a><form method="post" action="{{ url_for('delete_word', wid=w.id) }}" onsubmit="return confirm('Usunąć ten zwrot?')"><button class="btn small danger">Usuń</button></form></div></article>""", w=w, tts=tts) for w in items)
+    body = render_template_string(r"""<div class="section-head"><div><span class="eyebrow">Twoja baza</span><h1>Słownik <span class="badge">{{ count }} zwrotów</span></h1></div><a class="btn" href="{{ url_for('home') }}">+ Dodaj zwrot</a></div><section class="card"><form method="get"><div class="form-grid"><div class="field"><label>Szukaj</label><input name="q" value="{{ query }}" placeholder="Angielski, polski, przykład..."></div><div class="field"><label>Tag</label><select name="tag"><option value="">Wszystkie tagi</option>{% for tag in tags %}<option {{ 'selected' if tag == selected_tag else '' }}>{{ tag }}</option>{% endfor %}</select></div></div><div class="actions"><button class="btn">Filtruj</button><a class="btn secondary" href="{{ url_for('words_page') }}">Wyczyść</a></div></form></section><div class="stack" style="margin-top:16px">{{ cards|safe if cards else '<div class="card empty">Nie znaleziono żadnych zwrotów.</div>'|safe }}</div>""", count=len(items), query=query, selected_tag=selected_tag, tags=all_tags, cards=cards)
+    return render(body, "Słownik")
 
 
 @app.route("/words/<wid>/edit", methods=["GET", "POST"])
 def edit_word(wid: str):
     words = load_words()
-    if wid not in words:
-        flash("Nie znaleziono słówka.", "err")
+    word = words.get(wid)
+    if not word:
+        flash("Nie znaleziono zwrotu.", "err")
         return redirect(url_for("words_page"))
-
-    w = words[wid]
     if request.method == "POST":
-        w.en = (request.form.get("en", "") or "").strip()
-        w.pl = (request.form.get("pl", "") or "").strip()
-        w.example = (request.form.get("example", "") or "").strip()
-        w.notes = (request.form.get("notes", "") or "").strip()
-        tags_raw = (request.form.get("tags", "") or "").strip()
-        w.tags = [t.strip() for t in tags_raw.split(",") if t.strip()] if tags_raw else []
-
-        save_words(words)
-        flash("Zapisano zmiany ✅", "ok")
-        return redirect(url_for("words_page"))
-
-    body = f"""
-    <div class="card">
-      <h2>Edytuj słówko: {w.id}</h2>
-      <form method="post">
-        <div class="row">
-          <div>
-            <label>Angielski</label>
-            <input name="en" value="{w.en}" required>
-          </div>
-          <div>
-            <label>Polski</label>
-            <input name="pl" value="{w.pl}" required>
-          </div>
-        </div>
-
-        <div class="row" style="margin-top:10px">
-          <div>
-            <label>Tagi (po przecinku)</label>
-            <input name="tags" value="{', '.join(w.tags or [])}">
-          </div>
-          <div>
-            <label>Przykład</label>
-            <input name="example" value="{w.example}">
-          </div>
-        </div>
-
-        <div style="margin-top:10px">
-          <label>Notatki</label>
-          <textarea name="notes">{w.notes}</textarea>
-        </div>
-
-        <div class="actions" style="margin-top:12px">
-          <button class="btn" type="submit">Zapisz</button>
-          <a class="btn btn-ghost" href="{url_for('words_page')}">Powrót</a>
-        </div>
-      </form>
-    </div>
-    """
-    return render(body)
+        en, pl = request.form.get("en", "").strip(), request.form.get("pl", "").strip()
+        if not en or not pl:
+            flash("Angielski i polski są wymagane.", "err")
+        else:
+            word.en, word.pl = en, pl
+            word.example, word.notes = request.form.get("example", "").strip(), request.form.get("notes", "").strip()
+            word.tags = [tag.strip() for tag in request.form.get("tags", "").split(",") if tag.strip()]
+            save_words(words)
+            flash("Zmiany zostały zapisane.")
+            return redirect(url_for("words_page"))
+    body = render_template_string(r"""<div class="section-head"><div><span class="eyebrow">Słownik</span><h1>Edytuj zwrot</h1></div></div><section class="card"><form method="post"><div class="form-grid"><div class="field"><label>Angielski</label><input name="en" value="{{ w.en }}" required></div><div class="field"><label>Polski</label><input name="pl" value="{{ w.pl }}" required></div><div class="field"><label>Tagi</label><input name="tags" value="{{ w.tags|join(', ') }}"></div><div class="field"><label>Przykład</label><input name="example" value="{{ w.example }}"></div><div class="field full"><label>Notatki</label><textarea name="notes">{{ w.notes }}</textarea></div></div><div class="actions"><button class="btn">Zapisz zmiany</button><a class="btn secondary" href="{{ url_for('words_page') }}">Anuluj</a></div></form></section>""", w=word)
+    return render(body, "Edycja")
 
 
-@app.route("/words/<wid>/delete", methods=["POST"])
+@app.post("/words/<wid>/delete")
 def delete_word(wid: str):
     words = load_words()
-    if wid in words:
-        del words[wid]
+    if words.pop(wid, None):
         save_words(words)
-        flash("Usunięto słówko.", "ok")
+        flash("Zwrot został usunięty.")
     return redirect(url_for("words_page"))
 
-
-# ----------------------------
-# LEKCJE – tylko słownictwo
-# ----------------------------
 
 @app.route("/lessons")
 def lessons_list():
     words = load_words()
-
-    cards = ""
-    for lesson in LESSONS:
-        missing = lesson_missing_phrases(words, lesson)
-        total_phrases = len(lesson.get("required_phrases", []))
-        if not missing:
-            status = "✅ Wszystkie zwroty są w słowniku"
-        else:
-            status = f"⚠️ Brakuje {len(missing)} zwrotów w słowniku"
-        cards += f"""
-        <div class="card">
-          <h3 style="margin:0 0 6px 0">{lesson['title']} <span class="pill">{lesson['level']}</span></h3>
-          <div class="muted">{lesson['goal']}</div>
-          <div class="hr"></div>
-          <div><b>Status:</b> {status}</div>
-          <div class="muted" style="margin-top:4px">Zwrotów w lekcji: <b>{total_phrases}</b></div>
-          <div class="actions" style="margin-top:10px">
-            <a class="btn" href="{url_for('lesson_view', lesson_id=lesson['id'])}">Otwórz lekcję</a>
-            <a class="btn btn-ghost" href="{url_for('words_page')}">Słownik</a>
-          </div>
-        </div>
-        """
-
-    body = f"""
-    <div class="card">
-      <h2>Lekcje</h2>
-      <p class="muted">
-        Każda lekcja to lista gotowych zwrotów.
-        <br><b>Status</b> pokazuje, czy wszystkie wyrażenia masz już w swoim słowniku.
-      </p>
-      <p class="muted" style="margin-top:6px">
-        Przy każdej frazie jest przycisk 🔊 z wymową (brytyjski angielski – jeśli dostępny w przeglądarce).
-      </p>
-    </div>
-    <div class="hr"></div>
-    <div class="list">{cards}</div>
-    """
-    return render(body)
+    levels_html = ""
+    level_titles = {"A1": "Podstawy", "A2": "Podróże", "A2/B1": "Komunikacja i praca"}
+    for level in ("A1", "A2", "A2/B1"):
+        modules_html = ""
+        for module in [item for item in COURSE_MODULES if item["level"] == level]:
+            module_lessons = sorted(
+                (lesson for lesson in LESSONS if lesson["module"] == module["id"]),
+                key=lambda lesson: lesson["order"],
+            )
+            cards = []
+            known_in_module = 0
+            phrases_in_module = 0
+            completed_lessons = 0
+            for lesson in module_lessons:
+                missing = missing_phrases(words, lesson)
+                total = len(lesson["required_phrases"])
+                known = total - len(missing)
+                phrases_in_module += total
+                known_in_module += known
+                completed_lessons += int(not missing)
+                cards.append(render_template_string(r"""
+                <article class="card lesson">
+                  <div class="lesson-number">{{ order }}</div>
+                  <div>
+                    <div><span class="badge">{{ level }} · {{ module_number }}.{{ order }}</span></div>
+                    <h3 style="margin-top:7px">{{ lesson.title }}</h3>
+                    <p class="sub">{{ lesson.goal }}</p>
+                    <div class="progress"><i style="width:{{ percent }}%"></i></div>
+                    <div class="meta"><span>{{ known }}/{{ total }} zwrotów w słowniku</span><span>{{ percent }}%</span></div>
+                  </div>
+                  <div class="actions"><a class="btn small" href="{{ url_for('lesson_view', lesson_id=lesson.id) }}">Otwórz</a></div>
+                </article>""", lesson=lesson, level=level, module_number=module["number"], order=lesson["order"],
+                    total=total, known=known, percent=round(known / total * 100)))
+            module_percent = round(known_in_module / phrases_in_module * 100) if phrases_in_module else 0
+            modules_html += render_template_string(r"""
+            <section style="margin-top:22px">
+              <div class="card" style="background:linear-gradient(135deg,#f8faff,#f1f3ff)">
+                <div style="display:flex;justify-content:space-between;gap:18px;align-items:center;flex-wrap:wrap">
+                  <div>
+                    <span class="eyebrow">Moduł {{ module.number }}</span>
+                    <h2>{{ module.title }}</h2>
+                    <p class="sub">{{ module.description }}</p>
+                  </div>
+                  <div style="text-align:right"><strong style="font-size:25px">{{ percent }}%</strong><div class="sub">{{ completed }}/{{ count }} lekcji ukończonych</div></div>
+                </div>
+                <div class="progress" style="margin-top:14px"><i style="width:{{ percent }}%"></i></div>
+              </div>
+              <div class="stack" style="margin-top:12px">{{ cards|join|safe }}</div>
+            </section>""", module=module, percent=module_percent, completed=completed_lessons,
+                count=len(module_lessons), cards=cards)
+        levels_html += render_template_string(r"""
+        <section style="margin-top:34px">
+          <div class="section-head" style="margin-bottom:0"><div><span class="eyebrow">Poziom {{ level }}</span><h2>{{ title }}</h2></div></div>
+          {{ modules|safe }}
+        </section>""", level=level, title=level_titles[level], modules=modules_html)
+    body = render_template_string(r"""
+    <div class="section-head"><div><span class="eyebrow">Program nauki</span><h1>Lekcje</h1><p class="sub">Najpierw wybierz poziom i moduł, a następnie realizuj krótkie lekcje po kolei.</p></div></div>
+    {{ levels|safe }}""", levels=levels_html)
+    return render(body, "Lekcje")
 
 
 @app.route("/lesson/<int:lesson_id>")
 def lesson_view(lesson_id: int):
-    lesson = next((l for l in LESSONS if l["id"] == lesson_id), None)
+    lesson = next((item for item in LESSONS if item["id"] == lesson_id), None)
     if not lesson:
-        flash("Nie ma takiej lekcji.", "err")
+        flash("Nie znaleziono lekcji.", "err")
         return redirect(url_for("lessons_list"))
-
     words = load_words()
-    missing = lesson_missing_phrases(words, lesson)
-    total_phrases = len(lesson.get("required_phrases", []))
-
-    if missing:
-        status = "⚠️ Brakuje zwrotów w słowniku"
-        info_html = """
-        <p class="muted">
-          Poniżej widać wszystkie zwroty lekcji. Te, których nie masz jeszcze w słowniku,
-          <b>dodaj ręcznie</b> z poziomu strony głównej (Start).
-        </p>
-        """
-    else:
-        status = "✅ Wszystkie zwroty są w słowniku"
-        info_html = """
-        <p class="muted">
-          Wszystkie zwroty z tej lekcji są już w Twoim słowniku. Możesz je ćwiczyć,
-          używając tylko 🔊 wymowy i własnych notatek.
-        </p>
-        """
-
-    phrases_html = ""
-    for rp in lesson["required_phrases"]:
-        phrases_html += f"""
-        <div class="card">
-          <b>{rp['en']}</b> {tts_btn(rp['en'])}
-          <div class="muted">→ {rp['pl']}</div>
-        </div>
-        """
-
-    body = f"""
-    <div class="card">
-      <h2>{lesson['title']}</h2>
-      <p class="muted">{lesson['goal']}</p>
-      <div class="hr"></div>
-      <p><b>Status:</b> {status}</p>
-      <p class="muted">Zwrotów w lekcji: <b>{total_phrases}</b></p>
-      {info_html}
-      <div class="actions" style="margin-top:10px">
-        <a class="btn btn-ghost" href="{url_for('lessons_list')}">Wróć do lekcji</a>
-        <a class="btn btn-ghost" href="{url_for('words_page')}">Otwórz słownik</a>
+    existing = {(norm(w.en), norm(w.pl)) for w in words.values()}
+    rows = "".join(render_template_string(r"""
+    <article class="card word">
+      <div><div class="word-en">{{ p.en }} {{ tts(p.en)|safe }}</div><div class="translation">{{ p.pl }}</div></div>
+      <div class="practice-actions">
+        <span class="badge" style="height:max-content;background:{{ '#e9f8f2' if known else '#fff4e8' }};color:{{ '#11845b' if known else '#c26b16' }}">{{ 'W słowniku' if known else 'Do dodania' }}</span>
+        <button class="btn small secondary practice-btn" type="button" data-practice="{{ p.en }}">🎤 Powiedz</button>
+        <div class="speech-result" aria-live="polite"></div>
       </div>
-    </div>
+    </article>""", p=p, tts=tts, known=(norm(p["en"]), norm(p["pl"])) in existing) for p in lesson["required_phrases"])
+    missing = missing_phrases(words, lesson)
+    total, known = len(lesson["required_phrases"]), len(lesson["required_phrases"]) - len(missing)
+    module = next(item for item in COURSE_MODULES if item["id"] == lesson["module"])
+    video_html = ""
+    if lesson.get("video"):
+        video_html = render_template_string(r"""
+        <section class="card" style="margin-bottom:20px">
+          <span class="eyebrow">Film do lekcji</span>
+          <h2>{{ video.title }}</h2>
+          <p class="sub">{{ video.description }}</p>
+          <video id="cafeLessonVideo" controls playsinline preload="metadata" poster="{{ url_for('static', filename=video.poster) }}"
+                 style="display:block;width:100%;margin-top:16px;border-radius:16px;background:#09142b;box-shadow:0 12px 30px rgba(17,32,60,.18)">
+            <source src="{{ url_for('static', filename=video.file) }}" type="video/mp4">
+            Twoja przeglądarka nie obsługuje odtwarzania filmów MP4.
+          </video>
+          <div class="actions">
+            <button class="btn" id="playCafeDialogue" type="button">▶ Odtwórz z dialogiem</button>
+            <span class="sub">Baristka i klient mówią różnymi brytyjskimi głosami.</span>
+          </div>
+        </section>""", video=lesson["video"])
+    dialogue_html = ""
+    dialogue = DIALOGUES.get(lesson_id)
+    if dialogue:
+        turns = "".join(render_template_string(r"""
+        <article class="dialogue-line {{ 'you' if role == 'Ty' else '' }}" data-dialogue-text="{{ en }}" data-role="{{ role }}">
+          <div class="dialogue-role">{{ role }}</div>
+          <div class="dialogue-en">{{ en }} {{ tts(en)|safe }}</div>
+          <div class="dialogue-pl">{{ pl }}</div>
+          {% if role == 'Ty' %}<div class="practice-actions" style="align-items:flex-start;max-width:none;margin-top:9px">
+            <button class="btn small secondary practice-btn" type="button" data-practice="{{ en }}">🎤 Powiedz swoją kwestię</button>
+            <div class="speech-result" style="text-align:left;max-width:none" aria-live="polite"></div>
+          </div>{% endif %}
+        </article>""", role=role, en=en, pl=pl, tts=tts) for role, en, pl in dialogue["turns"])
+        dialogue_html = render_template_string(r"""
+        <section class="card dialogue">
+          <span class="eyebrow">Dialog sytuacyjny</span><h2>{{ dialogue.title }}</h2><p class="sub">{{ dialogue.description }}</p>
+          <div class="actions"><button class="btn" type="button" data-dialogue-play>▶ Odtwórz cały dialog</button><span class="sub">Kliknij mikrofon przy kwestiach „Ty”, aby ćwiczyć mówienie.</span></div>
+          <div class="dialogue-turns">{{ turns|safe }}</div>
+        </section>""", dialogue=dialogue, turns=turns)
+    body = render_template_string(r"""<a class="sub" href="{{ url_for('lessons_list') }}">← Wszystkie lekcje</a><div class="section-head"><div><span class="eyebrow">{{ lesson.level }} · Moduł {{ module.number }} · Lekcja {{ lesson.order }}</span><h1>{{ lesson.title }}</h1><p class="sub">{{ lesson.goal }}</p></div><span class="badge">{{ known }}/{{ total }} w słowniku</span></div><div class="progress" style="height:10px;margin-bottom:20px"><i style="width:{{ percent }}%"></i></div>{{ video_html|safe }}{{ dialogue_html|safe }}<div class="stack">{{ rows|safe }}</div>""", lesson=lesson, module=module, known=known, total=total, percent=round(known/total*100), rows=rows, video_html=video_html, dialogue_html=dialogue_html)
+    return render(body, lesson["title"])
 
-    <div class="hr"></div>
 
-    <h3>Zwroty z tej lekcji</h3>
-    <div class="list">
-      {phrases_html}
-    </div>
-    """
-    return render(body)
+@app.route("/materials")
+def materials_list():
+    cards = "".join(render_template_string(r"""<article class="card span-6"><span class="eyebrow">Materiał</span><h2>{{ item.title }}</h2><p class="sub">{{ item.description }}</p><div class="actions"><a class="btn small" href="{{ url_for('material_view', material_id=item.id) }}">Otwórz materiał</a></div></article>""", item=item) for item in MATERIALS)
+    body = render_template_string(r"""<div class="section-head"><div><span class="eyebrow">Baza wiedzy</span><h1>Materiały</h1><p class="sub">Krótka teoria i zestawy do szybkich powtórek.</p></div></div><div class="grid">{{ cards|safe }}</div>""", cards=cards)
+    return render(body, "Materiały")
 
 
-# ============================
-# START APP
-# ============================
+@app.route("/materials/<material_id>")
+def material_view(material_id: str):
+    material = next((item for item in MATERIALS if item["id"] == material_id), None)
+    if not material:
+        flash("Nie znaleziono materiału.", "err")
+        return redirect(url_for("materials_list"))
+    sections = ""
+    for section in material["sections"]:
+        rows = "".join(render_template_string("<tr><td><b>{{ en }}</b> {{ tts(en)|safe }}</td><td>{{ pl }}</td></tr>", en=en, pl=pl, tts=tts) for en, pl in section["items"])
+        sections += render_template_string("<section class='card'><h2>{{ title }}</h2><div style='overflow:auto;margin-top:12px'><table><thead><tr><th>English</th><th>Polski</th></tr></thead><tbody>{{ rows|safe }}</tbody></table></div></section>", title=section["title"], rows=rows)
+    body = render_template_string(r"""<a class="sub" href="{{ url_for('materials_list') }}">← Wszystkie materiały</a><div class="section-head"><div><span class="eyebrow">Materiał</span><h1>{{ material.title }}</h1><p class="sub">{{ material.description }}</p></div></div><div class="stack">{{ sections|safe }}</div>""", material=material, sections=sections)
+    return render(body, material["title"])
+
+
+@app.errorhandler(RuntimeError)
+def handle_data_error(error):
+    return render(f'<section class="card"><h1>Błąd danych</h1><p class="sub">{escape(str(error))}</p></section>', "Błąd"), 500
+
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=True)
+
+
