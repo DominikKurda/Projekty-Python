@@ -2372,7 +2372,6 @@ BASE_TEMPLATE = r"""
                 <a href="{{ url_for('dashboard') }}" data-testid="nav-dashboard">Pulpit</a>
                 <a href="{{ url_for('transfer') }}" data-testid="nav-transfer">Przelew</a>
                 <a href="{{ url_for('payment_requests') }}" data-testid="nav-payment-requests">Prośby{% if pending_payment_requests %} <span class="badge" data-testid="payment-requests-count">{{ pending_payment_requests }}</span>{% endif %}</a>
-                <a href="{{ url_for('joint_account') }}" data-testid="nav-joint-account">Konto wspólne</a>
                 <a href="{{ url_for('account_consents') }}" data-testid="nav-account-consents">Zgody{% if pending_account_consents %} <span class="badge" data-testid="account-consents-count">{{ pending_account_consents }}</span>{% endif %}</a>
                 <a href="{{ url_for('financial_calendar') }}" data-testid="nav-financial-calendar">Kalendarz</a>
                 <a href="{{ url_for('beneficiaries') }}" data-testid="nav-beneficiaries">Odbiorcy</a>
@@ -3199,7 +3198,6 @@ def dashboard():
         and actor['age'] >= 18
         and actor['account_type'] != 'junior'
     )
-    show_joint_panel = show_guardian_panel
     joint_dashboard_accounts = []
     if not managed_junior:
         guardian_juniors = get_db().execute(
@@ -3253,17 +3251,18 @@ def dashboard():
             <div><div class="eyebrow">{{ 'Finanse dziecka' if managed_junior else 'Twoje finanse' }}</div><h2 data-testid="welcome">{{ user.first_name }} {{ user.last_name }}</h2><span class="muted">{{ 'Panel zarządzania opiekuna' if managed_junior else 'Twój osobisty panel NovaBank' }}</span></div></div>
             <span class="status">● System dostępny</span>
         </div>
-        {% if show_guardian_panel %}<section class="panel panel-pad" style="margin-bottom:18px;border-color:#93c5fd" data-testid="guardian-junior-accounts"><div class="topline"><div><div class="eyebrow">Dostęp opiekuna</div><h3>Konta Junior</h3><p class="muted">Tutaj zatwierdzisz konto dziecka i wejdziesz na nie bez wylogowywania oraz bez jego hasła.</p></div><span class="badge">{{ guardian_juniors|length }}</span></div>
+        {% if show_guardian_panel %}<section class="panel panel-pad" style="margin-bottom:18px;border-color:#93c5fd" data-testid="account-access"><div class="eyebrow">Twoje rachunki</div><h3>Dostęp do kont</h3><p class="muted">Tutaj zarządzasz dostępem do Kont Junior i wspólnych bez ponownego logowania.</p>
+        <div data-testid="guardian-junior-accounts"><div class="topline"><div><h3>Konta Junior</h3><p class="muted">Zatwierdź konto dziecka lub wejdź na nie bez jego hasła.</p></div><span class="badge">{{ guardian_juniors|length }}</span></div>
         {% if guardian_juniors %}<div class="grid">{% for junior in guardian_juniors %}<article class="feature" data-testid="guardian-junior-{{ junior.id }}"><div class="feature-icon">👤</div><h3>{{ junior.first_name }} {{ junior.last_name }}</h3><p class="muted">Konto Junior · wiek: {{ junior.age }}</p><p class="balance" style="font-size:28px">{{ junior.balance_cents|money }}</p><p class="account">{{ junior.account_number }}</p>
         {% if junior.guardian_status == 'pending' %}<p><span class="status pending">Oczekuje na Twoją zgodę</span></p><a class="btn" style="width:100%;margin-top:12px;text-align:center" href="{{ url_for('account_consents') }}" data-testid="approve-junior-{{ junior.id }}">Zatwierdź Konto Junior</a>
         {% else %}<p><span class="status approved">Aktywne połączenie</span></p>{% if junior.pending_transfers %}<p><span class="status pending">{{ junior.pending_transfers }} przelewów czeka na zgodę</span></p>{% endif %}{% if junior.online_payments_blocked_until and junior.online_payments_blocked_until >= today %}<p><span class="status rejected">Internet zablokowany do {{ junior.online_payments_blocked_until }}</span></p>{% endif %}<form method="post" action="{{ url_for('switch_account_context') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="context_key" value="junior:{{ junior.id }}"><button class="btn" style="width:100%;margin-top:12px" data-testid="enter-junior-{{ junior.id }}">Wejdź na konto Junior</button></form>{% endif %}</article>{% endfor %}</div>
-        {% else %}<div class="empty" data-testid="guardian-junior-empty"><strong>Nie masz jeszcze połączonego Konta Junior.</strong><br>Podczas rejestracji Konta Junior wpisz dokładnie ten sam adres e-mail, którego używasz na koncie opiekuna.</div>{% endif %}</section>{% endif %}
-        {% if show_joint_panel %}<section class="panel panel-pad" style="margin-bottom:18px;border-color:#c4b5fd" data-testid="dashboard-joint-accounts"><div class="topline"><div><div class="eyebrow">Wspólne finanse</div><h3>Konta wspólne</h3><p class="muted">Przyjmij zaproszenie lub wejdź na aktywny wspólny rachunek bez ponownego logowania.</p></div><span class="badge">{{ joint_dashboard_accounts|length }}</span></div>
+        {% else %}<div class="empty" data-testid="guardian-junior-empty"><strong>Nie masz jeszcze połączonego Konta Junior.</strong><br>Podczas rejestracji Konta Junior wpisz dokładnie ten sam adres e-mail, którego używasz na koncie opiekuna.</div>{% endif %}</div>
+        <div style="margin-top:26px;padding-top:22px;border-top:1px solid #dbe3ee" data-testid="dashboard-joint-accounts"><div class="topline"><div><h3>Konta wspólne</h3><p class="muted">Przyjmij zaproszenie lub wejdź na aktywny wspólny rachunek bez ponownego logowania.</p></div><span class="badge">{{ joint_dashboard_accounts|length }}</span></div>
         {% if joint_dashboard_accounts %}<div class="grid">{% for joint in joint_dashboard_accounts %}<article class="feature" data-testid="dashboard-joint-{{ joint.id }}"><div class="feature-icon">👥</div><h3>{{ joint.name }}</h3><p class="balance" style="font-size:28px">{{ joint.balance_cents|money }}</p><p class="account">{{ joint.account_number }}</p>
         {% if joint.access_status == 'invitation_pending' %}<p><span class="status pending">Zaproszenie oczekuje na Twoją zgodę</span></p><a class="btn" style="width:100%;margin-top:12px;text-align:center" href="{{ url_for('account_consents') }}" data-testid="approve-joint-{{ joint.id }}">Zatwierdź konto wspólne</a>
         {% elif joint.access_status == 'waiting_for_other' %}<p><span class="status pending">Oczekuje na zgodę drugiego właściciela</span></p><a class="btn secondary" style="width:100%;margin-top:12px;text-align:center" href="{{ url_for('joint_account', account_id=joint.id) }}" data-testid="joint-details-{{ joint.id }}">Zobacz szczegóły</a>
         {% else %}<p><span class="status approved">Aktywne konto wspólne</span></p><form method="post" action="{{ url_for('switch_account_context') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="context_key" value="joint:{{ joint.id }}"><button class="btn" style="width:100%;margin-top:12px" data-testid="enter-joint-{{ joint.id }}">Wejdź na konto wspólne</button></form>{% endif %}</article>{% endfor %}</div>
-        {% else %}<div class="empty" data-testid="dashboard-joint-empty"><strong>Nie masz jeszcze konta wspólnego.</strong><br>Utwórz wspólny rachunek i zaproś drugiego pełnoletniego użytkownika NovaBanku.<br><a class="btn" style="margin-top:14px" href="{{ url_for('joint_account') }}" data-testid="create-joint-from-dashboard">Utwórz konto wspólne</a></div>{% endif %}</section>{% endif %}
+        {% else %}<div class="empty" data-testid="dashboard-joint-empty"><strong>Nie masz jeszcze konta wspólnego.</strong><br>Utwórz wspólny rachunek i zaproś drugiego pełnoletniego użytkownika NovaBanku.<br><a class="btn" style="margin-top:14px" href="{{ url_for('joint_account') }}" data-testid="create-joint-from-dashboard">Utwórz konto wspólne</a></div>{% endif %}</div></section>{% endif %}
         {% if not managed_junior %}<details class="panel panel-pad profile-editor" data-testid="profile-editor">
             <summary>{{ 'Zmień zdjęcie profilowe' if has_photo else 'Dodaj zdjęcie profilowe' }}</summary>
             <form action="{{ url_for('update_profile_photo') }}" method="post" enctype="multipart/form-data" data-testid="profile-photo-form">
@@ -3346,7 +3345,6 @@ def dashboard():
         has_photo=has_photo,
         managed_junior=managed_junior,
         show_guardian_panel=show_guardian_panel,
-        show_joint_panel=show_joint_panel,
         guardian_juniors=guardian_juniors,
         joint_dashboard_accounts=joint_dashboard_accounts,
         today=date.today().isoformat(),
