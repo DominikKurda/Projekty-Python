@@ -790,11 +790,7 @@ MATERIALS = [
 
 
 def seed_words() -> Dict[str, Word]:
-    seed = []
-    for lesson in LESSONS[:4]:
-        seed.extend((p["en"], p["pl"], [f"lesson{lesson['id']}"]) for p in lesson["required_phrases"])
-    return {f"w{i:04d}": Word(f"w{i:04d}", en, pl, tags=tags, created_at=now_iso())
-            for i, (en, pl, tags) in enumerate(seed, 1)}
+    return {}
 
 
 def save_words(words: Dict[str, Word]) -> None:
@@ -830,12 +826,12 @@ BASE_HTML = r"""
 <!doctype html><html lang="pl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ page_title }} · {{ app_title }}</title>
 <style>
-:root{--bg:#f5f7fb;--surface:#fff;--ink:#122033;--muted:#68758a;--line:#e3e8f0;--primary:#3157e3;--primary2:#6846d6;--good:#11845b;--warn:#c26b16;--danger:#c94154;--shadow:0 14px 40px rgba(28,43,76,.09)}
+:root{--bg:#f4f7fc;--surface:#fff;--ink:#122033;--muted:#68758a;--line:#dce3ee;--primary:#012169;--primary2:#c8102e;--good:#11845b;--warn:#c26b16;--danger:#c94154;--shadow:0 14px 40px rgba(28,43,76,.09)}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}a{color:inherit;text-decoration:none}button,input,textarea,select{font:inherit}
-.nav{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.88);backdrop-filter:blur(18px);border-bottom:1px solid rgba(227,232,240,.8)}.nav-inner{max-width:1180px;margin:auto;padding:13px 22px;display:flex;align-items:center;gap:24px}.brand{display:flex;align-items:center;gap:11px;font-weight:850;font-size:19px}.logo{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;color:white;background:linear-gradient(135deg,var(--primary),var(--primary2));box-shadow:0 8px 18px rgba(49,87,227,.25)}.links{display:flex;gap:6px;margin-left:auto}.links a{padding:9px 13px;border-radius:11px;color:var(--muted);font-weight:650}.links a:hover,.links a.active{color:var(--primary);background:#eef2ff}.menu{display:none;margin-left:auto;border:0;background:#eef2ff;padding:9px 12px;border-radius:10px}
-.shell{max-width:1180px;margin:auto;padding:34px 22px 64px}.hero{position:relative;overflow:hidden;padding:34px;border-radius:26px;background:linear-gradient(135deg,#172b63,#3157e3 58%,#7146d8);color:white;box-shadow:0 20px 55px rgba(39,62,135,.22)}.hero:after{content:"";position:absolute;width:280px;height:280px;border-radius:50%;right:-80px;top:-120px;background:rgba(255,255,255,.11)}.hero h1{max-width:720px;margin:0 0 9px;font-size:clamp(30px,5vw,52px);line-height:1.08;letter-spacing:-.04em}.hero p{max-width:700px;margin:0;color:#dce5ff;font-size:18px}
+.nav{position:sticky;top:0;z-index:20;background:rgba(255,255,255,.88);backdrop-filter:blur(18px);border-bottom:1px solid rgba(227,232,240,.8)}.nav-inner{max-width:1180px;margin:auto;padding:13px 22px;display:flex;align-items:center;gap:24px}.brand{display:flex;align-items:center;gap:11px;font-weight:850;font-size:19px}.logo{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;color:white;background:linear-gradient(135deg,#012169 52%,#c8102e 52%);box-shadow:0 8px 18px rgba(1,33,105,.25)}.links{display:flex;gap:6px;margin-left:auto}.links a{padding:9px 13px;border-radius:11px;color:var(--muted);font-weight:650}.links a:hover,.links a.active{color:var(--primary);background:#e8edf7}.menu{display:none;margin-left:auto;border:0;background:#e8edf7;padding:9px 12px;border-radius:10px}
+.shell{max-width:1180px;margin:auto;padding:34px 22px 64px}.hero{position:relative;overflow:hidden;padding:34px;border-radius:26px;background-color:#012169;background-image:linear-gradient(34deg,transparent 44%,rgba(255,255,255,.15) 44% 48%,rgba(200,16,46,.78) 48% 53%,rgba(255,255,255,.15) 53% 57%,transparent 57%),linear-gradient(146deg,transparent 44%,rgba(255,255,255,.15) 44% 48%,rgba(200,16,46,.78) 48% 53%,rgba(255,255,255,.15) 53% 57%,transparent 57%),linear-gradient(135deg,#012169,#012169);color:white;box-shadow:0 20px 55px rgba(39,62,135,.22)}.hero:after{content:"";position:absolute;width:280px;height:280px;border-radius:50%;right:-80px;top:-120px;background:rgba(255,255,255,.11)}.hero h1{max-width:720px;margin:0 0 9px;font-size:clamp(30px,5vw,52px);line-height:1.08;letter-spacing:-.04em}.hero p{max-width:700px;margin:0;color:#dce5ff;font-size:18px}
 .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:18px;margin-top:20px}.span-8{grid-column:span 8}.span-4{grid-column:span 4}.span-6{grid-column:span 6}.card{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:22px;box-shadow:var(--shadow)}.card h2,.card h3{margin:0}.sub{color:var(--muted);margin:6px 0 0}.eyebrow{display:block;color:var(--primary);font-size:12px;font-weight:850;letter-spacing:.11em;text-transform:uppercase;margin-bottom:7px}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}.stat{padding:17px;background:#f7f9fd;border:1px solid var(--line);border-radius:16px}.stat strong{display:block;font-size:27px;line-height:1.15}.stat span{color:var(--muted);font-size:13px}
-.field{display:flex;flex-direction:column;gap:7px}.field label{font-weight:720;font-size:14px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.full{grid-column:1/-1}input,textarea,select{width:100%;border:1px solid #d8dfeb;border-radius:12px;padding:12px 14px;background:#fbfcff;color:var(--ink);outline:none}textarea{min-height:96px;resize:vertical}input:focus,textarea:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(49,87,227,.11);background:white}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:16px}.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:12px;padding:10px 15px;font-weight:750;cursor:pointer;background:var(--primary);color:#fff;box-shadow:0 7px 16px rgba(49,87,227,.18)}.btn:hover{transform:translateY(-1px);filter:brightness(1.04)}.btn.secondary{background:#edf1f8;color:var(--ink);box-shadow:none}.btn.danger{background:#fff0f2;color:var(--danger);box-shadow:none}.btn.small{padding:8px 11px;font-size:13px}.section-head{display:flex;justify-content:space-between;align-items:end;gap:16px;margin:30px 0 14px}.section-head h1,.section-head h2{margin:0;letter-spacing:-.025em}.stack{display:flex;flex-direction:column;gap:12px}.lesson{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:17px}.lesson-number{display:grid;place-items:center;width:48px;height:48px;border-radius:15px;background:#eef2ff;color:var(--primary);font-weight:850}.badge,.tag{display:inline-flex;padding:4px 9px;border-radius:999px;background:#eef2ff;color:var(--primary);font-size:12px;font-weight:750}.tag{margin:3px 5px 0 0;background:#f0f3f7;color:#59677b}.progress{height:7px;background:#e9edf4;border-radius:99px;overflow:hidden;margin-top:10px}.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--primary),#7a52df);border-radius:99px}.meta{display:flex;gap:12px;align-items:center;color:var(--muted);font-size:13px;margin-top:8px}.word{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:15px}.word-en{font-size:20px;font-weight:800}.translation{color:var(--muted);font-size:17px}.listen{display:inline-grid;place-items:center;width:34px;height:34px;margin-left:6px;border:0;border-radius:10px;background:#eef2ff;color:var(--primary);cursor:pointer;font-size:12px}.listen:hover{background:var(--primary);color:white}.practice-actions{display:flex;max-width:270px;align-items:flex-end;justify-content:center;flex-direction:column;gap:7px}.speech-result{max-width:270px;color:var(--muted);font-size:13px;text-align:right}.speech-result.good{color:var(--good)}.speech-result.try{color:var(--warn)}.practice-btn.listening{background:#fff0f2;color:var(--danger)}.dialogue{margin-bottom:20px;background:linear-gradient(135deg,#fff,#f6f8ff)}.dialogue-turns{display:flex;flex-direction:column;gap:10px;margin-top:18px}.dialogue-line{max-width:82%;padding:14px 16px;border-radius:17px;background:#edf1f8}.dialogue-line.you{align-self:flex-end;background:#e9eeff;border:1px solid #ced8ff}.dialogue-role{font-size:12px;font-weight:850;color:var(--primary);text-transform:uppercase;letter-spacing:.07em}.dialogue-en{font-size:17px;font-weight:760;margin-top:3px}.dialogue-pl{color:var(--muted);font-size:14px;margin-top:2px}.flash{padding:13px 16px;margin-bottom:15px;border-radius:13px;background:#e9f8f2;color:#086c49;border:1px solid #bde8d7}.flash.err{background:#fff0f2;color:#a52b3d;border-color:#f4c8cf}.empty{text-align:center;padding:48px;color:var(--muted)}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:13px 10px;border-bottom:1px solid var(--line)}th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}.audio-panel{position:fixed;right:20px;bottom:20px;z-index:30;width:min(360px,calc(100vw - 40px));display:none}.audio-panel.open{display:block}.audio-top{display:flex;justify-content:space-between;align-items:center}.audio-panel .card{box-shadow:0 24px 70px rgba(21,31,55,.28)}
+.field{display:flex;flex-direction:column;gap:7px}.field label{font-weight:720;font-size:14px}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:15px}.full{grid-column:1/-1}input,textarea,select{width:100%;border:1px solid #d8dfeb;border-radius:12px;padding:12px 14px;background:#fbfcff;color:var(--ink);outline:none}textarea{min-height:96px;resize:vertical}input:focus,textarea:focus,select:focus{border-color:var(--primary);box-shadow:0 0 0 4px rgba(1,33,105,.11);background:white}.actions{display:flex;align-items:center;flex-wrap:wrap;gap:9px;margin-top:16px}.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;border:0;border-radius:12px;padding:10px 15px;font-weight:750;cursor:pointer;background:var(--primary);color:#fff;box-shadow:0 7px 16px rgba(1,33,105,.18)}.btn:hover{transform:translateY(-1px);filter:brightness(1.04)}.btn.secondary{background:#edf1f8;color:var(--ink);box-shadow:none}.btn.danger{background:#fff0f2;color:var(--danger);box-shadow:none}.btn.small{padding:8px 11px;font-size:13px}.section-head{display:flex;justify-content:space-between;align-items:end;gap:16px;margin:30px 0 14px}.section-head h1,.section-head h2{margin:0;letter-spacing:-.025em}.stack{display:flex;flex-direction:column;gap:12px}.lesson{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:17px}.lesson-number{display:grid;place-items:center;width:48px;height:48px;border-radius:15px;background:#e8edf7;color:var(--primary);font-weight:850}.badge,.tag{display:inline-flex;padding:4px 9px;border-radius:999px;background:#e8edf7;color:var(--primary);font-size:12px;font-weight:750}.tag{margin:3px 5px 0 0;background:#f0f3f7;color:#59677b}.progress{height:7px;background:#e9edf4;border-radius:99px;overflow:hidden;margin-top:10px}.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--primary),#c8102e);border-radius:99px}.meta{display:flex;gap:12px;align-items:center;color:var(--muted);font-size:13px;margin-top:8px}.word{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:15px}.word-en{font-size:20px;font-weight:800}.translation{color:var(--muted);font-size:17px}.listen{display:inline-grid;place-items:center;width:34px;height:34px;margin-left:6px;border:0;border-radius:10px;background:#e8edf7;color:var(--primary);cursor:pointer;font-size:12px}.listen:hover{background:var(--primary);color:white}.practice-actions{display:flex;max-width:270px;align-items:flex-end;justify-content:center;flex-direction:column;gap:7px}.speech-result{max-width:270px;color:var(--muted);font-size:13px;text-align:right}.speech-result.good{color:var(--good)}.speech-result.try{color:var(--warn)}.practice-btn.listening{background:#fff0f2;color:var(--danger)}.dialogue{margin-bottom:20px;background:linear-gradient(135deg,#fff,#f6f8ff)}.dialogue-turns{display:flex;flex-direction:column;gap:10px;margin-top:18px}.dialogue-line{max-width:82%;padding:14px 16px;border-radius:17px;background:#edf1f8}.dialogue-line.you{align-self:flex-end;background:#fce8ec;border:1px solid #e6aeb9}.dialogue-role{font-size:12px;font-weight:850;color:var(--primary);text-transform:uppercase;letter-spacing:.07em}.dialogue-en{font-size:17px;font-weight:760;margin-top:3px}.dialogue-pl{color:var(--muted);font-size:14px;margin-top:2px}.flash{padding:13px 16px;margin-bottom:15px;border-radius:13px;background:#e9f8f2;color:#086c49;border:1px solid #bde8d7}.flash.err{background:#fff0f2;color:#a52b3d;border-color:#f4c8cf}.empty{text-align:center;padding:48px;color:var(--muted)}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:13px 10px;border-bottom:1px solid var(--line)}th{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}.audio-panel{position:fixed;right:20px;bottom:20px;z-index:30;width:min(360px,calc(100vw - 40px));display:none}.audio-panel.open{display:block}.audio-top{display:flex;justify-content:space-between;align-items:center}.audio-panel .card{box-shadow:0 24px 70px rgba(21,31,55,.28)}
 @media(max-width:850px){.span-8,.span-4,.span-6{grid-column:1/-1}.links{display:none;position:absolute;left:14px;right:14px;top:66px;padding:10px;flex-direction:column;background:white;border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow)}.links.open{display:flex}.menu{display:block}.lesson{grid-template-columns:auto 1fr}.lesson>.actions{grid-column:1/-1;margin:0}.stats{grid-template-columns:1fr 1fr 1fr}}
 @media(max-width:560px){body{font-size:15px}.shell{padding:22px 14px 48px}.nav-inner{padding:11px 14px}.brand span{display:none}.hero{padding:25px 21px;border-radius:20px}.hero p{font-size:16px}.card{padding:17px;border-radius:17px}.form-grid{grid-template-columns:1fr}.stats{grid-template-columns:1fr}.lesson{grid-template-columns:1fr}.lesson-number{display:none}.word{grid-template-columns:1fr}.word>.actions{margin-top:0}}
 </style></head><body>
@@ -847,8 +843,8 @@ BASE_HTML = r"""
 const $=s=>document.querySelector(s), synth=window.speechSynthesis; $('#menu').onclick=()=>$('#links').classList.toggle('open'); $('#audioOpen').onclick=e=>{e.preventDefault();$('#audioPanel').classList.add('open')}; $('#audioClose').onclick=()=>$('#audioPanel').classList.remove('open');
 const voice=$('#voice'),rate=$('#rate'),rateLabel=$('#rateLabel'); rate.value=localStorage.ttsRate||1; rateLabel.textContent=(+rate.value).toFixed(2)+'×'; rate.oninput=()=>{localStorage.ttsRate=rate.value;rateLabel.textContent=(+rate.value).toFixed(2)+'×'};
 function voices(){if(!synth)return;const all=synth.getVoices();voice.innerHTML='';all.forEach(v=>{const o=new Option(v.name+' ('+v.lang+')',v.voiceURI);voice.add(o)});const saved=localStorage.ttsVoice;const preferred=all.find(v=>v.voiceURI===saved)||all.find(v=>v.lang.toLowerCase().startsWith('en-gb'))||all.find(v=>v.lang.toLowerCase().startsWith('en'));if(preferred)voice.value=preferred.voiceURI}if(synth){synth.onvoiceschanged=voices;voices()}voice.onchange=()=>localStorage.ttsVoice=voice.value;
-function speak(text){if(!synth)return alert('Ta przeglądarka nie obsługuje syntezatora mowy.');synth.cancel();const u=new SpeechSynthesisUtterance(text),selected=synth.getVoices().find(v=>v.voiceURI===voice.value);if(selected)u.voice=selected;u.lang='en-GB';u.rate=+rate.value;synth.speak(u)}
-document.addEventListener('click',e=>{const b=e.target.closest('[data-speak]');if(b)speak(b.dataset.speak)});$('#testVoice').onclick=()=>speak('Hello! Welcome to your English lesson.');$('#stopVoice').onclick=()=>synth&&synth.cancel();
+function speak(text){stopDialogue();if(!synth)return alert('Ta przeglądarka nie obsługuje syntezatora mowy.');synth.cancel();const u=new SpeechSynthesisUtterance(text),selected=synth.getVoices().find(v=>v.voiceURI===voice.value);if(selected)u.voice=selected;u.lang='en-GB';u.rate=+rate.value;synth.speak(u)}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-speak]');if(b)speak(b.dataset.speak)});$('#testVoice').onclick=()=>speak('Hello! Welcome to your English lesson.');$('#stopVoice').onclick=()=>stopDialogue();
 
 // Nauka mówienia: rozpoznaj wypowiedź, pokaż usłyszany tekst i oceń zgodność.
 const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -860,22 +856,71 @@ document.addEventListener('click',e=>{
   const button=e.target.closest('[data-practice]');if(!button)return;
   if(!SpeechRecognition){alert('Rozpoznawanie mowy nie jest dostępne w tej przeglądarce. Użyj Chrome lub Edge i zezwól na dostęp do mikrofonu.');return}
   if(activeRecognition){activeRecognition.abort();activeRecognition=null}
-  const expected=button.dataset.practice,container=button.closest('.practice-actions,.dialogue-line'),result=container.querySelector('.speech-result');
+  const expected=button.dataset.practice,container=button.closest('.practice-actions,.dialogue-line,.course-word'),result=container.querySelector('.speech-result');
   const recognition=new SpeechRecognition();activeRecognition=recognition;recognition.lang='en-GB';recognition.interimResults=false;recognition.maxAlternatives=1;
-  button.classList.add('listening');button.textContent='● Słucham…';result.className='speech-result';result.textContent='Powiedz teraz cały zwrot po angielsku.';
-  recognition.onresult=event=>{const heard=event.results[0][0].transcript,score=speechScore(expected,heard),good=score>=82;result.className='speech-result '+(good?'good':'try');result.textContent=(good?'✓ Bardzo dobrze! ':'Spróbuj ponownie. ')+'Usłyszałem: „'+heard+'” · '+score+'%';};
+  button.dataset.originalLabel=button.textContent;button.classList.add('listening');button.textContent='● Słucham…';result.className='speech-result';result.textContent='Powiedz teraz cały zwrot po angielsku.';
+  recognition.onresult=event=>{const heard=event.results[0][0].transcript,score=speechScore(expected,heard),good=score>=82;result.className='speech-result '+(good?'good':'try');result.textContent=(good?'✓ Tekst zgodny ze wzorcem. ':'Porównaj ze wzorcem. ')+'Usłyszałem: „'+heard+'” · '+score+'%';};
   recognition.onerror=event=>{result.className='speech-result try';result.textContent=event.error==='not-allowed'?'Włącz dostęp do mikrofonu w przeglądarce.':'Nie udało się rozpoznać wypowiedzi. Spróbuj ponownie.';};
-  recognition.onend=()=>{button.classList.remove('listening');button.textContent='🎤 Powiedz';if(activeRecognition===recognition)activeRecognition=null};
+  recognition.onend=()=>{button.classList.remove('listening');button.textContent=button.dataset.originalLabel||'🎤 Powiedz';if(activeRecognition===recognition)activeRecognition=null};
   recognition.start();
 });
+// Odtwarzanie kolejnych kwestii oraz ćwiczenie roli bez presji czasu.
+let dialogueRun={token:0,section:null,lines:[],index:0,role:false,waiting:false};
+function stopDialogue(message='Zatrzymano rozmowę.'){
+  dialogueRun.token++;
+  if(synth)synth.cancel();
+  const section=dialogueRun.section;
+  if(section){
+    section.classList.remove('practice-role');
+    section.querySelectorAll('.current-line').forEach(el=>el.classList.remove('current-line'));
+    section.querySelector('[data-dialogue-next]').hidden=true;
+    section.querySelector('[data-dialogue-status]').textContent=message;
+  }
+  dialogueRun.waiting=false;dialogueRun.section=null;
+}
+function dialogueStep(token){
+  if(token!==dialogueRun.token||!dialogueRun.section)return;
+  const run=dialogueRun,section=run.section;
+  section.querySelectorAll('.current-line').forEach(el=>el.classList.remove('current-line'));
+  if(run.index>=run.lines.length){stopDialogue('Koniec dialogu. Spróbuj ponownie, zmieniając odpowiedzi.');return}
+  const line=run.lines[run.index];
+  line.classList.add('current-line');
+  line.scrollIntoView({behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth',block:'center'});
+  const status=section.querySelector('[data-dialogue-status]');
+  if(run.role&&line.dataset.role==='Ty'){
+    run.waiting=true;
+    section.querySelector('[data-dialogue-next]').hidden=false;
+    status.textContent='Twoja kolej. Odpowiedz na głos, a następnie kliknij „Dalej”. Możesz odkryć podpowiedź.';
+    return;
+  }
+  status.textContent='Kwestia '+(run.index+1)+' z '+run.lines.length+' · '+line.dataset.role;
+  const u=new SpeechSynthesisUtterance(line.dataset.dialogueText);
+  const selected=roleVoice(line.dataset.role==='Ty'?'customer':'barista');
+  if(selected)u.voice=selected;
+  u.lang='en-GB';u.rate=Number(rate.value)||.9;
+  u.onend=()=>{if(token===dialogueRun.token){dialogueRun.index++;dialogueStep(token)}};
+  u.onerror=()=>{if(token===dialogueRun.token)stopDialogue('Nie udało się odtworzyć głosu. Wybierz dostępny głos i spróbuj ponownie.')};
+  synth.speak(u);
+}
 document.addEventListener('click',e=>{
-  const button=e.target.closest('[data-dialogue-play]');if(!button)return;
-  if(!synth){alert('Ta przeglądarka nie obsługuje syntezatora mowy.');return}
-  synth.cancel();button.closest('.dialogue').querySelectorAll('[data-dialogue-text]').forEach(line=>{
-    const utterance=new SpeechSynthesisUtterance(line.dataset.dialogueText),isYou=line.dataset.role==='Ty',selected=roleVoice(isYou?'customer':'barista');
-    if(selected)utterance.voice=selected;utterance.lang='en-GB';utterance.rate=.88;utterance.pitch=isYou?.94:1.06;synth.speak(utterance);
-  });
+  const hint=e.target.closest('[data-dialogue-hint]');
+  if(hint){const line=hint.closest('.dialogue-line');const shown=line.classList.toggle('answer-visible');hint.setAttribute('aria-expanded',String(shown));hint.textContent=shown?'Ukryj podpowiedź':'Pokaż podpowiedź';return}
+  if(e.target.closest('[data-dialogue-stop]')){stopDialogue();return}
+  const next=e.target.closest('[data-dialogue-next]');
+  if(next){if(!dialogueRun.waiting||next.closest('.dialogue')!==dialogueRun.section)return;dialogueRun.waiting=false;next.hidden=true;dialogueRun.index++;dialogueStep(dialogueRun.token);return}
+  const start=e.target.closest('[data-dialogue-play],[data-dialogue-role]');
+  if(!start)return;
+  if(!synth){alert('Ta przeglądarka nie obsługuje odtwarzania głosu. Możesz przeczytać dialog i ćwiczyć na głos.');return}
+  if(activeRecognition){activeRecognition.abort();activeRecognition=null}
+  stopDialogue();
+  const section=start.closest('.dialogue');
+  dialogueRun.section=section;dialogueRun.lines=Array.from(section.querySelectorAll('[data-dialogue-text]'));dialogueRun.index=0;dialogueRun.role=start.hasAttribute('data-dialogue-role');
+  section.classList.toggle('practice-role',dialogueRun.role);
+  section.querySelectorAll('.answer-visible').forEach(el=>el.classList.remove('answer-visible'));
+  section.querySelectorAll('[data-dialogue-hint]').forEach(el=>{el.textContent='Pokaż podpowiedź';el.setAttribute('aria-expanded','false')});
+  dialogueStep(dialogueRun.token);
 });
+window.addEventListener('pagehide',()=>stopDialogue(''));
 
 // Film „Kawiarnia”: dialog jest odtwarzany przez głosy zainstalowane w
 // przeglądarce. Kliknięcie użytkownika pozwala uruchomić dźwięk zgodnie z
@@ -932,12 +977,12 @@ def render(body: str, page_title: str):
 @app.route("/")
 def home():
     words = load_words()
-    completed = sum(not missing_phrases(words, lesson) for lesson in LESSONS)
+    completed = sum(course_status(lesson, read_progress()) == 'done' for lesson in NEW_LESSONS.values())
     tags = {tag for word in words.values() for tag in word.tags}
     body = render_template_string(r"""
-    <section class="hero"><span class="eyebrow" style="color:#bfcfff">Twój angielski. Twój rytm.</span><h1>Ucz się zwrotów, których naprawdę użyjesz.</h1><p>Buduj własny słownik, ćwicz wymowę i obserwuj postęp w praktycznych lekcjach.</p><div class="actions"><a class="btn" style="background:white;color:#3157e3" href="{{ url_for('lessons_list') }}">Rozpocznij naukę</a><a class="btn secondary" href="{{ url_for('words_page') }}">Otwórz słownik</a></div></section>
+    <section class="hero"><span class="eyebrow" style="color:#bfcfff">Twój angielski. Twój rytm.</span><h1>Ucz się zwrotów, których naprawdę użyjesz.</h1><p>Buduj własny słownik, ćwicz wymowę i obserwuj postęp w praktycznych lekcjach.</p><div class="actions"><a class="btn" style="background:white;color:#012169" href="{{ url_for('lessons_list') }}">Rozpocznij naukę</a><a class="btn secondary" href="{{ url_for('words_page') }}">Otwórz słownik</a></div></section>
     <div class="grid"><section class="card span-8"><span class="eyebrow">Nowy zwrot</span><h2>Dodaj do słownika</h2><p class="sub">Zapisz tłumaczenie, przykład i własne notatki.</p><form method="post" action="{{ url_for('add_word') }}" style="margin-top:18px"><div class="form-grid"><div class="field"><label>Angielski</label><input name="en" placeholder="Where can I buy a ticket?" required></div><div class="field"><label>Polski</label><input name="pl" placeholder="Gdzie mogę kupić bilet?" required></div><div class="field"><label>Tagi</label><input name="tags" placeholder="london, tickets"></div><div class="field"><label>Przykład</label><input name="example" placeholder="Can I buy a ticket online?"></div><div class="field full"><label>Notatki</label><textarea name="notes" placeholder="Wymowa, synonimy, kontekst..."></textarea></div></div><button class="btn" type="submit" style="margin-top:15px">Dodaj zwrot</button></form></section>
-    <aside class="card span-4"><span class="eyebrow">Postęp</span><h2>Twoje statystyki</h2><div class="stats" style="margin-top:18px"><div class="stat"><strong>{{ total }}</strong><span>zwrotów</span></div><div class="stat"><strong>{{ completed }}</strong><span>ukończonych lekcji</span></div><div class="stat"><strong>{{ tags }}</strong><span>tagów</span></div></div><p class="sub" style="margin-top:18px">Każdy dodany zwrot przybliża Cię do ukończenia kolejnej lekcji.</p></aside></div>
+    <aside class="card span-4"><span class="eyebrow">Postęp</span><h2>Twoje statystyki</h2><div class="stats" style="margin-top:18px"><div class="stat"><strong>{{ total }}</strong><span>zwrotów</span></div><div class="stat"><strong>{{ completed }}</strong><span>ukończonych lekcji</span></div><div class="stat"><strong>{{ tags }}</strong><span>tagów</span></div></div><p class="sub" style="margin-top:18px">Słownik i postęp nauki są niezależne. Status części ustawiasz po ćwiczeniu.</p></aside></div>
     """, total=len(words), completed=completed, tags=len(tags))
     return render(body, "Start")
 
@@ -969,7 +1014,7 @@ def words_page():
         items = [w for w in items if selected_tag in w.tags]
     all_tags = sorted({tag for word in words.values() for tag in word.tags})
     cards = "".join(render_template_string(r"""<article class="card word"><div><div class="word-en">{{ w.en }} {{ tts(w.en)|safe }}</div><div class="translation">{{ w.pl }}</div>{% if w.tags %}<div style="margin-top:8px">{% for tag in w.tags %}<span class="tag">{{ tag }}</span>{% endfor %}</div>{% endif %}{% if w.example %}<p class="sub"><b>Przykład:</b> {{ w.example }}</p>{% endif %}{% if w.notes %}<p class="sub"><b>Notatka:</b> {{ w.notes }}</p>{% endif %}</div><div class="actions"><a class="btn small secondary" href="{{ url_for('edit_word', wid=w.id) }}">Edytuj</a><form method="post" action="{{ url_for('delete_word', wid=w.id) }}" onsubmit="return confirm('Usunąć ten zwrot?')"><button class="btn small danger">Usuń</button></form></div></article>""", w=w, tts=tts) for w in items)
-    body = render_template_string(r"""<div class="section-head"><div><span class="eyebrow">Twoja baza</span><h1>Słownik <span class="badge">{{ count }} zwrotów</span></h1></div><a class="btn" href="{{ url_for('home') }}">+ Dodaj zwrot</a></div><section class="card"><form method="get"><div class="form-grid"><div class="field"><label>Szukaj</label><input name="q" value="{{ query }}" placeholder="Angielski, polski, przykład..."></div><div class="field"><label>Tag</label><select name="tag"><option value="">Wszystkie tagi</option>{% for tag in tags %}<option {{ 'selected' if tag == selected_tag else '' }}>{{ tag }}</option>{% endfor %}</select></div></div><div class="actions"><button class="btn">Filtruj</button><a class="btn secondary" href="{{ url_for('words_page') }}">Wyczyść</a></div></form></section><div class="stack" style="margin-top:16px">{{ cards|safe if cards else '<div class="card empty">Nie znaleziono żadnych zwrotów.</div>'|safe }}</div>""", count=len(items), query=query, selected_tag=selected_tag, tags=all_tags, cards=cards)
+    body = render_template_string(r"""<div class="section-head"><div><span class="eyebrow">Twoja baza</span><h1>Słownik <span class="badge">{{ count }} zwrotów</span></h1></div><a class="btn" href="{{ url_for('dictionary_add') }}">+ Dodaj zwrot</a></div><section class="card"><form method="get"><div class="form-grid"><div class="field"><label>Szukaj</label><input name="q" value="{{ query }}" placeholder="Angielski, polski, przykład..."></div><div class="field"><label>Tag</label><select name="tag"><option value="">Wszystkie tagi</option>{% for tag in tags %}<option {{ 'selected' if tag == selected_tag else '' }}>{{ tag }}</option>{% endfor %}</select></div></div><div class="actions"><button class="btn">Filtruj</button><a class="btn secondary" href="{{ url_for('words_page') }}">Wyczyść</a></div></form></section><div class="stack" style="margin-top:16px">{{ cards|safe if cards else '<div class="card empty">Nie znaleziono żadnych zwrotów.</div>'|safe }}</div>""", count=len(items), query=query, selected_tag=selected_tag, tags=all_tags, cards=cards)
     return render(body, "Słownik")
 
 
@@ -1006,126 +1051,12 @@ def delete_word(wid: str):
 
 @app.route("/lessons")
 def lessons_list():
-    words = load_words()
-    levels_html = ""
-    level_titles = {"A1": "Podstawy", "A2": "Podróże", "A2/B1": "Komunikacja i praca"}
-    for level in ("A1", "A2", "A2/B1"):
-        modules_html = ""
-        for module in [item for item in COURSE_MODULES if item["level"] == level]:
-            module_lessons = sorted(
-                (lesson for lesson in LESSONS if lesson["module"] == module["id"]),
-                key=lambda lesson: lesson["order"],
-            )
-            cards = []
-            known_in_module = 0
-            phrases_in_module = 0
-            completed_lessons = 0
-            for lesson in module_lessons:
-                missing = missing_phrases(words, lesson)
-                total = len(lesson["required_phrases"])
-                known = total - len(missing)
-                phrases_in_module += total
-                known_in_module += known
-                completed_lessons += int(not missing)
-                cards.append(render_template_string(r"""
-                <article class="card lesson">
-                  <div class="lesson-number">{{ order }}</div>
-                  <div>
-                    <div><span class="badge">{{ level }} · {{ module_number }}.{{ order }}</span></div>
-                    <h3 style="margin-top:7px">{{ lesson.title }}</h3>
-                    <p class="sub">{{ lesson.goal }}</p>
-                    <div class="progress"><i style="width:{{ percent }}%"></i></div>
-                    <div class="meta"><span>{{ known }}/{{ total }} zwrotów w słowniku</span><span>{{ percent }}%</span></div>
-                  </div>
-                  <div class="actions"><a class="btn small" href="{{ url_for('lesson_view', lesson_id=lesson.id) }}">Otwórz</a></div>
-                </article>""", lesson=lesson, level=level, module_number=module["number"], order=lesson["order"],
-                    total=total, known=known, percent=round(known / total * 100)))
-            module_percent = round(known_in_module / phrases_in_module * 100) if phrases_in_module else 0
-            modules_html += render_template_string(r"""
-            <section style="margin-top:22px">
-              <div class="card" style="background:linear-gradient(135deg,#f8faff,#f1f3ff)">
-                <div style="display:flex;justify-content:space-between;gap:18px;align-items:center;flex-wrap:wrap">
-                  <div>
-                    <span class="eyebrow">Moduł {{ module.number }}</span>
-                    <h2>{{ module.title }}</h2>
-                    <p class="sub">{{ module.description }}</p>
-                  </div>
-                  <div style="text-align:right"><strong style="font-size:25px">{{ percent }}%</strong><div class="sub">{{ completed }}/{{ count }} lekcji ukończonych</div></div>
-                </div>
-                <div class="progress" style="margin-top:14px"><i style="width:{{ percent }}%"></i></div>
-              </div>
-              <div class="stack" style="margin-top:12px">{{ cards|join|safe }}</div>
-            </section>""", module=module, percent=module_percent, completed=completed_lessons,
-                count=len(module_lessons), cards=cards)
-        levels_html += render_template_string(r"""
-        <section style="margin-top:34px">
-          <div class="section-head" style="margin-bottom:0"><div><span class="eyebrow">Poziom {{ level }}</span><h2>{{ title }}</h2></div></div>
-          {{ modules|safe }}
-        </section>""", level=level, title=level_titles[level], modules=modules_html)
-    body = render_template_string(r"""
-    <div class="section-head"><div><span class="eyebrow">Program nauki</span><h1>Lekcje</h1><p class="sub">Najpierw wybierz poziom i moduł, a następnie realizuj krótkie lekcje po kolei.</p></div></div>
-    {{ levels|safe }}""", levels=levels_html)
-    return render(body, "Lekcje")
+    return course_home()
 
 
 @app.route("/lesson/<int:lesson_id>")
-def lesson_view(lesson_id: int):
-    lesson = next((item for item in LESSONS if item["id"] == lesson_id), None)
-    if not lesson:
-        flash("Nie znaleziono lekcji.", "err")
-        return redirect(url_for("lessons_list"))
-    words = load_words()
-    existing = {(norm(w.en), norm(w.pl)) for w in words.values()}
-    rows = "".join(render_template_string(r"""
-    <article class="card word">
-      <div><div class="word-en">{{ p.en }} {{ tts(p.en)|safe }}</div><div class="translation">{{ p.pl }}</div></div>
-      <div class="practice-actions">
-        <span class="badge" style="height:max-content;background:{{ '#e9f8f2' if known else '#fff4e8' }};color:{{ '#11845b' if known else '#c26b16' }}">{{ 'W słowniku' if known else 'Do dodania' }}</span>
-        <button class="btn small secondary practice-btn" type="button" data-practice="{{ p.en }}">🎤 Powiedz</button>
-        <div class="speech-result" aria-live="polite"></div>
-      </div>
-    </article>""", p=p, tts=tts, known=(norm(p["en"]), norm(p["pl"])) in existing) for p in lesson["required_phrases"])
-    missing = missing_phrases(words, lesson)
-    total, known = len(lesson["required_phrases"]), len(lesson["required_phrases"]) - len(missing)
-    module = next(item for item in COURSE_MODULES if item["id"] == lesson["module"])
-    video_html = ""
-    if lesson.get("video"):
-        video_html = render_template_string(r"""
-        <section class="card" style="margin-bottom:20px">
-          <span class="eyebrow">Film do lekcji</span>
-          <h2>{{ video.title }}</h2>
-          <p class="sub">{{ video.description }}</p>
-          <video id="cafeLessonVideo" controls playsinline preload="metadata" poster="{{ url_for('static', filename=video.poster) }}"
-                 style="display:block;width:100%;margin-top:16px;border-radius:16px;background:#09142b;box-shadow:0 12px 30px rgba(17,32,60,.18)">
-            <source src="{{ url_for('static', filename=video.file) }}" type="video/mp4">
-            Twoja przeglądarka nie obsługuje odtwarzania filmów MP4.
-          </video>
-          <div class="actions">
-            <button class="btn" id="playCafeDialogue" type="button">▶ Odtwórz z dialogiem</button>
-            <span class="sub">Baristka i klient mówią różnymi brytyjskimi głosami.</span>
-          </div>
-        </section>""", video=lesson["video"])
-    dialogue_html = ""
-    dialogue = DIALOGUES.get(lesson_id)
-    if dialogue:
-        turns = "".join(render_template_string(r"""
-        <article class="dialogue-line {{ 'you' if role == 'Ty' else '' }}" data-dialogue-text="{{ en }}" data-role="{{ role }}">
-          <div class="dialogue-role">{{ role }}</div>
-          <div class="dialogue-en">{{ en }} {{ tts(en)|safe }}</div>
-          <div class="dialogue-pl">{{ pl }}</div>
-          {% if role == 'Ty' %}<div class="practice-actions" style="align-items:flex-start;max-width:none;margin-top:9px">
-            <button class="btn small secondary practice-btn" type="button" data-practice="{{ en }}">🎤 Powiedz swoją kwestię</button>
-            <div class="speech-result" style="text-align:left;max-width:none" aria-live="polite"></div>
-          </div>{% endif %}
-        </article>""", role=role, en=en, pl=pl, tts=tts) for role, en, pl in dialogue["turns"])
-        dialogue_html = render_template_string(r"""
-        <section class="card dialogue">
-          <span class="eyebrow">Dialog sytuacyjny</span><h2>{{ dialogue.title }}</h2><p class="sub">{{ dialogue.description }}</p>
-          <div class="actions"><button class="btn" type="button" data-dialogue-play>▶ Odtwórz cały dialog</button><span class="sub">Kliknij mikrofon przy kwestiach „Ty”, aby ćwiczyć mówienie.</span></div>
-          <div class="dialogue-turns">{{ turns|safe }}</div>
-        </section>""", dialogue=dialogue, turns=turns)
-    body = render_template_string(r"""<a class="sub" href="{{ url_for('lessons_list') }}">← Wszystkie lekcje</a><div class="section-head"><div><span class="eyebrow">{{ lesson.level }} · Moduł {{ module.number }} · Lekcja {{ lesson.order }}</span><h1>{{ lesson.title }}</h1><p class="sub">{{ lesson.goal }}</p></div><span class="badge">{{ known }}/{{ total }} w słowniku</span></div><div class="progress" style="height:10px;margin-bottom:20px"><i style="width:{{ percent }}%"></i></div>{{ video_html|safe }}{{ dialogue_html|safe }}<div class="stack">{{ rows|safe }}</div>""", lesson=lesson, module=module, known=known, total=total, percent=round(known/total*100), rows=rows, video_html=video_html, dialogue_html=dialogue_html)
-    return render(body, lesson["title"])
+def lesson_view(lesson_id):
+    return legacy_lesson(lesson_id)
 
 
 @app.route("/materials")
@@ -1154,7 +1085,642 @@ def handle_data_error(error):
     return render(f'<section class="card"><h1>Błąd danych</h1><p class="sub">{escape(str(error))}</p></section>', "Błąd"), 500
 
 
-if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=True)
+# Uporządkowany kurs: 6 działów, 24 lekcje, zachowane materiały źródłowe.
+import hashlib
+import threading
+from flask import abort
+
+PARTS = {item['id']: item for item in LESSONS}
+for part_id, title, items in [
+    (803, 'Szukanie pracy', [
+        ("I'm looking for my first job in QA.", 'Szukam pierwszej pracy w QA.'),
+        ('Are you hiring junior testers?', 'Czy zatrudniacie młodszych testerów?'),
+        ('Is this a remote position?', 'Czy to praca zdalna?'),
+        ('Is commercial experience required?', 'Czy wymagane jest doświadczenie komercyjne?'),
+        ('I have my own testing projects.', 'Mam własne projekty testowe.'),
+        ('Where can I send my CV?', 'Gdzie mogę wysłać CV?'),
+        ('I would like to apply for this position.', 'Chciałbym aplikować na to stanowisko.'),
+        ('Thank you for considering my application.', 'Dziękuję za rozpatrzenie mojej aplikacji.')]),
+    (804, 'Codzienna komunikacja w pracy', [
+        ('Could you explain this requirement?', 'Czy możesz wyjaśnić to wymaganie?'),
+        ('I found a bug in the login form.', 'Znalazłem błąd w formularzu logowania.'),
+        ('These are the steps to reproduce it.', 'Oto kroki pozwalające go odtworzyć.'),
+        ('What is the expected result?', 'Jaki jest oczekiwany wynik?'),
+        ('The test passed.', 'Test zakończył się powodzeniem.'),
+        ('The test failed.', 'Test zakończył się niepowodzeniem.'),
+        ('Could you review my bug report?', 'Czy możesz przejrzeć moje zgłoszenie błędu?'),
+        ('I need help with this task.', 'Potrzebuję pomocy z tym zadaniem.')])]:
+    PARTS[part_id] = dict(id=part_id, title=title, goal='Przećwicz rozmowę przydatną w pracy testera.', required_phrases=new_phrases(*items))
+
+# Zwroty o atrakcjach występują w jednej części kursu, pozostałe bilety osobno.
+attraction_en = {norm(p['en']) for p in PARTS[504]['required_phrases']}
+PARTS[206] = dict(PARTS[206], title='Kino i koncert — bilety', required_phrases=[p for p in PARTS[206]['required_phrases'] if norm(p['en']) not in attraction_en])
+# Rozdzielenie pór roku od opowiadania o wczoraj, bez utraty zdań.
+season = PARTS[306]['required_phrases']
+PARTS[307] = dict(id=307, title='Dziś i wczoraj', goal='Opowiedz, gdzie byłeś wczoraj i co robiłeś.', required_phrases=season[2:7])
+PARTS[306] = dict(PARTS[306], title='Pory roku', required_phrases=season[:2]+season[7:]+new_phrases(('spring', 'wiosna'), ('summer', 'lato'), ('autumn', 'jesień'), ('winter', 'zima')))
+
+COURSE = [
+ ('Ja i moje życie', '👋', [
+  ('Pierwsza rozmowa', [101,102], 'Przywitaj się, przedstaw i zakończ rozmowę.'),
+  ('Opowiadam o sobie', [103,104,106,105], 'Powiedz kilka zdań o swoim wieku, domu, wyglądzie i zajęciu.'),
+  ('Rodzina i znajomi', [701], 'Opowiedz o bliskiej osobie.'),
+  ('Zainteresowania i czas wolny', [702,704,705], 'Opowiedz o hobby, ulubionym filmie lub sporcie.')]),
+ ('Codzienne sprawy', '🏙️', [
+  ('Zakupy i płatności', [203], 'Zapytaj o produkt, cenę i zapłać.'),
+  ('Droga i transport', [204,205], 'Zapytaj o drogę i wybierz właściwy środek transportu.'),
+  ('Kino, koncert i bilety', [206], 'Kup bilety i wybierz miejsca.'),
+  ('Pogoda i pory roku', [301,302,303,304,305,306], 'Opisz dzisiejszą pogodę i prognozę.')]),
+ ('Jedzenie i dostawa', '🍽️', [
+  ('W kawiarni', [201], 'Zamów napój, wybierz dodatki i zapłać.'),
+  ('W restauracji', [202], 'Zamów posiłek i poproś o rachunek.'),
+  ('Zamawiam jedzenie do domu', [601,609,602,610,603,604,606], 'Wybierz danie, podaj adres i potwierdź zamówienie.'),
+  ('Odbieram zamówienie i zgłaszam problem', [605,608,607], 'Odbierz dostawę i zgłoś ewentualny problem.')]),
+ ('Podróż samolotem', '✈️', [
+  ('Rezerwacja i przygotowania', [401], 'Zarezerwuj lot i zapytaj o dokumenty.'),
+  ('Odprawa i kontrole', [402,403,404,405,406], 'Nadaj bagaż i odpowiedz na pytania podczas kontroli.'),
+  ('Bramka i podróż na pokładzie', [407,408], 'Znajdź bramkę, swoje miejsce i poproś o pomoc.'),
+  ('Przylot, bagaż i problemy', [409,410], 'Odbierz bagaż albo zgłoś jego zaginięcie.')]),
+ ('Wyjazdy i rozmowy', '🧳', [
+  ('Pobyt w hotelu', [501,502], 'Zamelduj się i zgłoś problem z pokojem.'),
+  ('Zwiedzanie i pomoc w podróży', [503,504,505], 'Zaplanuj zwiedzanie, kup bilet i poproś o pomoc.'),
+  ('Plany i zaproszenia', [703], 'Zaproś kogoś i ustal termin spotkania.'),
+  ('Wspomnienia i opinie', [307,706,707,708,709], 'Opowiedz o wyjeździe i wymień opinie.')]),
+ ('Angielski do pracy', '💼', [
+  ('Moje umiejętności i CV', [801], 'Przedstaw swoje umiejętności i projekty.'),
+  ('Szukanie pracy', [803], 'Zapytaj o pierwszą pracę w QA.'),
+  ('Rozmowa kwalifikacyjna', [802], 'Odpowiedz na pytania rekrutera.'),
+  ('Codzienna komunikacja w pracy', [804], 'Opisz błąd i poproś zespół o pomoc.')]),
+]
+NEW_LESSONS = {}
+MODULES = []
+for mn, (title, icon, entries) in enumerate(COURSE, 1):
+    module = dict(number=mn, title=title, icon=icon, lessons=[])
+    for ln, (name, parts, goal) in enumerate(entries, 1):
+        lid = mn*1000+ln
+        lesson = dict(id=lid, number=f'{mn}.{ln}', title=name, parts=parts, goal=goal, icon=icon, module=title)
+        module['lessons'].append(lesson)
+        NEW_LESSONS[lid] = lesson
+    MODULES.append(module)
+PART_OWNER = {pid: lesson['id'] for lesson in NEW_LESSONS.values() for pid in lesson['parts']}
+
+# Pełne scenariusze są przykładami edukacyjnymi, nie opisem rzeczywistych ofert.
+LESSON_DIALOGUES = {1001: {'title': 'Nowa znajomość',
+        'task': 'Zmień imię i kraj. Zapytaj rozmówcę, skąd jest.',
+        'turns': [('Znajomy', "Hi! I'm Alex. What's your name?", 'Cześć! Jestem Alex. Jak masz na imię?'),
+                  ('Ty', "Hi, I'm Dominik. Nice to meet you.", 'Cześć, jestem Dominik. Miło cię poznać.'),
+                  ('Znajomy', 'Nice to meet you too. Where are you from?', 'Ciebie również. Skąd jesteś?'),
+                  ('Ty', "I'm from Poland. And you?", 'Jestem z Polski. A ty?'),
+                  ('Znajomy', "I'm from England. Are you here on holiday?", 'Jestem z Anglii. Jesteś tu na wakacjach?'),
+                  ('Ty', "Yes, I'm here for a week.", 'Tak, jestem tu na tydzień.'),
+                  ('Znajomy', 'Enjoy your stay! See you around.', 'Udanego pobytu! Do zobaczenia.'),
+                  ('Ty', 'Thanks! Have a nice day.', 'Dzięki! Miłego dnia.')]},
+ 1002: {'title': 'Kilka słów o sobie',
+        'task': 'Zastąp przykładowe informacje prawdziwymi informacjami o sobie.',
+        'turns': [('Znajomy', 'Tell me a little about yourself. Where do you live?', 'Opowiedz mi trochę o sobie. Gdzie mieszkasz?'),
+                  ('Ty', 'I live in a small village in Poland.', 'Mieszkam w małej wsi w Polsce.'),
+                  ('Znajomy', "What's it like there?", 'Jak tam jest?'),
+                  ('Ty', "It's quiet, and there are fields near my house.", 'Jest spokojnie, a blisko mojego domu są pola.'),
+                  ('Znajomy', 'What do you do?', 'Czym się zajmujesz?'),
+                  ('Ty',
+                   "I'm learning software testing and looking for my first job.",
+                   'Uczę się testowania oprogramowania i szukam pierwszej pracy.'),
+                  ('Znajomy', 'That sounds interesting. What else are you learning?', 'To brzmi ciekawie. Czego jeszcze się uczysz?'),
+                  ('Ty', "I'm learning English so I can speak more confidently.", 'Uczę się angielskiego, żeby mówić pewniej.')]},
+ 1003: {'title': 'Rozmowa o rodzinie',
+        'task': 'Opowiedz o jednej bliskiej osobie i wspólnej aktywności.',
+        'turns': [('Znajomy', 'Do you have a big family?', 'Czy masz dużą rodzinę?'),
+                  ('Ty', 'No, my family is quite small.', 'Nie, moja rodzina jest dość mała.'),
+                  ('Znajomy', 'Do you see each other often?', 'Czy często się widujecie?'),
+                  ('Ty', 'Yes, we usually meet at weekends.', 'Tak, zwykle spotykamy się w weekendy.'),
+                  ('Znajomy', 'What do you like doing together?', 'Co lubicie razem robić?'),
+                  ('Ty', 'We like having dinner and watching sport.', 'Lubimy jeść razem obiad i oglądać sport.'),
+                  ('Znajomy', 'That sounds nice. Who usually cooks?', 'To brzmi miło. Kto zwykle gotuje?'),
+                  ('Ty',
+                   'We take turns. Sometimes we order food instead.',
+                   'Gotujemy na zmianę. Czasem zamiast tego zamawiamy jedzenie.')]},
+ 1004: {'title': 'Rozmowa o zainteresowaniach',
+        'task': 'Zmień dyscyplinę sportu i dodaj własne hobby.',
+        'turns': [('Znajomy', 'What do you do in your free time?', 'Co robisz w wolnym czasie?'),
+                  ('Ty', 'I watch ski jumping and learn English.', 'Oglądam skoki narciarskie i uczę się angielskiego.'),
+                  ('Znajomy', 'How did you get interested in ski jumping?', 'Jak zainteresowałeś się skokami narciarskimi?'),
+                  ('Ty', "I've enjoyed watching it since I was a child.", 'Lubię je oglądać od dzieciństwa.'),
+                  ('Znajomy',
+                   'Do you prefer watching it on TV or going to competitions?',
+                   'Wolisz oglądać je w telewizji czy jeździć na zawody?'),
+                  ('Ty', "I'd love to see a competition in person.", 'Chętnie zobaczyłbym zawody na żywo.'),
+                  ('Znajomy', 'What else do you enjoy?', 'Co jeszcze lubisz robić?'),
+                  ('Ty', 'I enjoy films too. Can you recommend a good one?', 'Lubię też filmy. Czy możesz polecić jakiś dobry?')]},
+ 2001: {'title': 'Kupowanie kurtki',
+        'task': 'Wybierz inny produkt, rozmiar i sposób płatności.',
+        'turns': [('Sprzedawca', 'Hello. Can I help you?', 'Dzień dobry. Czy mogę pomóc?'),
+                  ('Ty',
+                   'Yes, please. Do you have this jacket in a larger size?',
+                   'Tak, proszę. Czy macie tę kurtkę w większym rozmiarze?'),
+                  ('Sprzedawca',
+                   "Yes, here's a large. Would you like to try it on?",
+                   'Tak, tutaj jest rozmiar L. Czy chcesz ją przymierzyć?'),
+                  ('Ty', 'Yes. Where is the fitting room?', 'Tak. Gdzie jest przymierzalnia?'),
+                  ('Sprzedawca', "It's over there. How does it fit?", 'Jest tam. Jak leży kurtka?'),
+                  ('Ty', 'It fits well. How much is it?', 'Dobrze leży. Ile kosztuje?'),
+                  ('Sprzedawca',
+                   "It's forty pounds. You can pay by card or in cash.",
+                   'Kosztuje czterdzieści funtów. Można zapłacić kartą lub gotówką.'),
+                  ('Ty', "I'll take it. I'll pay by card, please.", 'Wezmę ją. Zapłacę kartą.')]},
+ 2002: {'title': 'Droga do centrum',
+        'task': 'Zapytaj o inną lokalizację i upewnij się, gdzie kupić bilet.',
+        'turns': [('Przechodzień', 'Hello. Do you need help?', 'Dzień dobry. Czy potrzebujesz pomocy?'),
+                  ('Ty', 'Yes, please. How do I get to the city centre?', 'Tak, proszę. Jak dostać się do centrum?'),
+                  ('Przechodzień',
+                   'Take the number twelve bus from the stop opposite the bank.',
+                   'Wsiądź do autobusu numer dwanaście na przystanku naprzeciwko banku.'),
+                  ('Ty', 'Sorry, could you repeat the bus number?', 'Przepraszam, czy możesz powtórzyć numer autobusu?'),
+                  ('Przechodzień',
+                   'Number twelve. The journey takes about fifteen minutes.',
+                   'Numer dwanaście. Przejazd trwa około piętnastu minut.'),
+                  ('Ty', 'Can I buy a ticket on the bus?', 'Czy mogę kupić bilet w autobusie?'),
+                  ('Przechodzień', 'Yes, you can pay by card when you get on.', 'Tak, możesz zapłacić kartą przy wsiadaniu.'),
+                  ('Ty', 'Great, thank you for your help.', 'Świetnie, dziękuję za pomoc.')]},
+ 2003: {'title': 'Brak biletów na wybraną godzinę',
+        'task': 'Wybierz inną godzinę i liczbę miejsc.',
+        'turns': [('Kasjer', 'Good evening. How can I help you?', 'Dobry wieczór. W czym mogę pomóc?'),
+                  ('Ty', "I'd like two tickets for the six-thirty film, please.", 'Poproszę dwa bilety na film o szóstej trzydzieści.'),
+                  ('Kasjer',
+                   "I'm sorry, that showing is sold out. There are seats at nine-thirty.",
+                   'Przykro mi, na ten seans nie ma już biletów. Są miejsca na dziewiątą trzydzieści.'),
+                  ('Ty', "That's fine. Are there two seats together?", 'W porządku. Czy są dwa miejsca obok siebie?'),
+                  ('Kasjer', 'Yes, in the middle of row five.', 'Tak, pośrodku piątego rzędu.'),
+                  ('Ty', "I'll take them. How much is the total?", 'Wezmę je. Ile wynosi suma?'),
+                  ('Kasjer', 'Twenty pounds. Here are your tickets. Enjoy the film!', 'Dwadzieścia funtów. Oto bilety. Miłego seansu!'),
+                  ('Ty', 'Thank you. Which screen is it in?', 'Dziękuję. W której sali jest seans?'),
+                  ('Kasjer', "It's on screen three, just down the corridor.", 'W sali numer trzy, kawałek dalej korytarzem.'),
+                  ('Ty', 'Thanks!', 'Dziękuję!')]},
+ 2004: {'title': 'Pogoda a plany na dzień',
+        'task': 'Zmień prognozę i zaproponuj odpowiednią aktywność.',
+        'turns': [('Znajomy', "What's the weather like outside?", 'Jaka jest pogoda na zewnątrz?'),
+                  ('Ty', "It's cloudy and quite windy.", 'Jest pochmurno i dość wietrznie.'),
+                  ('Znajomy', 'Do you think it will rain?', 'Myślisz, że będzie padać?'),
+                  ('Ty', 'Yes, according to the forecast, it will rain this afternoon.', 'Tak, według prognozy po południu będzie padać.'),
+                  ('Znajomy', 'Shall we go for a walk now, then?', 'To może pójdziemy na spacer teraz?'),
+                  ('Ty', "Good idea. I'll take a jacket and an umbrella.", 'Dobry pomysł. Wezmę kurtkę i parasol.'),
+                  ('Znajomy', "Let's meet outside in ten minutes.", 'Spotkajmy się na zewnątrz za dziesięć minut.'),
+                  ('Ty', 'All right. See you in a moment.', 'Dobrze. Do zobaczenia za chwilę.')]},
+ 3001: {'title': 'Kawa na wynos',
+        'task': 'Zamów inny napój i zmień rozmiar lub dodatki.',
+        'turns': [('Barista', 'Good morning. What can I get for you?', 'Dzień dobry. Co podać?'),
+                  ('Ty', "I'd like a cappuccino, please.", 'Poproszę cappuccino.'),
+                  ('Barista', 'What size would you like?', 'Jaki rozmiar wybierasz?'),
+                  ('Ty', 'Medium, please. Do you have oat milk?', 'Średni, proszę. Czy macie mleko owsiane?'),
+                  ('Barista', 'Yes, we do. Is that for here or to take away?', 'Tak. Na miejscu czy na wynos?'),
+                  ('Ty', 'To take away, please. No sugar.', 'Na wynos, proszę. Bez cukru.'),
+                  ('Barista', "That's four pounds. You can tap your card here.", 'To cztery funty. Możesz przyłożyć kartę tutaj.'),
+                  ('Ty', 'Thank you. Could I have the receipt, please?', 'Dziękuję. Czy mogę prosić o paragon?')]},
+ 3002: {'title': 'Posiłek w restauracji',
+        'task': 'Zmień danie i poproś o zamianę dodatku.',
+        'turns': [('Kelner', 'Good evening. A table for how many people?', 'Dobry wieczór. Stolik dla ilu osób?'),
+                  ('Ty', 'A table for two, please.', 'Stolik dla dwóch osób, proszę.'),
+                  ('Kelner',
+                   'Of course. Here are the menus. What would you like to drink?',
+                   'Oczywiście. Oto menu. Czego chcecie się napić?'),
+                  ('Ty', 'Two glasses of water, please. What do you recommend?', 'Dwie szklanki wody, proszę. Co polecasz?'),
+                  ('Kelner',
+                   'The grilled chicken is very popular. It comes with chips.',
+                   'Grillowany kurczak jest bardzo popularny. Podajemy go z frytkami.'),
+                  ('Ty', "I'll have that. Could I have rice instead of chips?", 'Poproszę to danie. Czy mogę dostać ryż zamiast frytek?'),
+                  ('Kelner', 'Certainly. And for the other person?', 'Oczywiście. A dla drugiej osoby?'),
+                  ('Ty', 'The vegetable pasta, please.', 'Poproszę makaron z warzywami.'),
+                  ('Kelner', 'Was everything all right with your meal?', 'Czy wszystko było w porządku z posiłkiem?'),
+                  ('Ty', 'Yes, it was delicious. Could we have the bill, please?', 'Tak, było pyszne. Czy możemy prosić o rachunek?')]},
+ 3003: {'title': 'Zamówienie z dostawą',
+        'task': 'Zmień potrawę, adres i sposób płatności. Adres w dialogu jest przykładowy.',
+        'turns': [('Pracownik restauracji',
+                   'Hello, Green Kitchen. What would you like to order?',
+                   'Dzień dobry, Green Kitchen. Co chcesz zamówić?'),
+                  ('Ty', "I'd like chicken with rice and a vegetable soup, please.", 'Poproszę kurczaka z ryżem i zupę warzywną.'),
+                  ('Pracownik restauracji', 'Is that for collection or delivery?', 'Z odbiorem czy z dostawą?'),
+                  ('Ty', 'Delivery, please. Could I have the sauce separately?', 'Z dostawą, proszę. Czy mogę dostać sos osobno?'),
+                  ('Pracownik restauracji', "Of course. What's the delivery address?", 'Oczywiście. Jaki jest adres dostawy?'),
+                  ('Ty', 'Fifteen Green Street, flat twelve.', 'Green Street piętnaście, mieszkanie dwanaście.'),
+                  ('Pracownik restauracji',
+                   "That's eighteen pounds including delivery. It will take about forty minutes.",
+                   'To osiemnaście funtów razem z dostawą. Potrwa to około czterdziestu minut.'),
+                  ('Ty', "That's fine. Can I pay by card on delivery?", 'W porządku. Czy mogę zapłacić kartą przy odbiorze?'),
+                  ('Pracownik restauracji',
+                   "Yes. So that's chicken with rice, sauce separately, and one vegetable soup.",
+                   'Tak. Czyli kurczak z ryżem, sos osobno i jedna zupa warzywna.'),
+                  ('Ty', "That's correct. Thank you.", 'Zgadza się. Dziękuję.')]},
+ 3004: {'title': 'Brakujący produkt w dostawie',
+        'task': 'Zgłoś inny problem i poproś o konkretne rozwiązanie.',
+        'turns': [('Pracownik restauracji', 'Hello, Green Kitchen. How can I help?', 'Dzień dobry, Green Kitchen. W czym mogę pomóc?'),
+                  ('Ty',
+                   "I've just received my order, but one item is missing.",
+                   'Właśnie otrzymałem zamówienie, ale brakuje jednego produktu.'),
+                  ('Pracownik restauracji',
+                   "I'm sorry about that. What's your order number?",
+                   'Przepraszam za to. Jaki jest numer zamówienia?'),
+                  ('Ty', "It's two four six. The soup is missing.", 'Dwa cztery sześć. Brakuje zupy.'),
+                  ('Pracownik restauracji', 'Let me check. Yes, I can see it on your order.', 'Już sprawdzam. Tak, widzę ją w zamówieniu.'),
+                  ('Ty', 'Could you send it, please?', 'Czy możecie ją dostarczyć?'),
+                  ('Pracownik restauracji',
+                   "Of course. We'll deliver it in about fifteen minutes at no extra charge.",
+                   'Oczywiście. Dostarczymy ją za około piętnaście minut bez dodatkowej opłaty.'),
+                  ('Ty', 'Thank you for sorting that out.', 'Dziękuję za rozwiązanie problemu.')]},
+ 4001: {'title': 'Wybór lotu',
+        'task': 'Zmień kierunek, termin i rodzaj biletu. Ceny są przykładowe.',
+        'turns': [('Konsultant', 'Hello. Where would you like to fly?', 'Dzień dobry. Dokąd chcesz polecieć?'),
+                  ('Ty', "I'd like to book a flight to London.", 'Chciałbym zarezerwować lot do Londynu.'),
+                  ('Konsultant', 'When would you like to travel?', 'Kiedy chcesz podróżować?'),
+                  ('Ty', 'Next Friday. Is there a direct flight?', 'W przyszły piątek. Czy jest lot bezpośredni?'),
+                  ('Konsultant',
+                   'Yes, at ten in the morning. Would you like a return ticket?',
+                   'Tak, o dziesiątej rano. Czy chcesz bilet w obie strony?'),
+                  ('Ty',
+                   'Yes, returning on Monday. Is checked baggage included?',
+                   'Tak, z powrotem w poniedziałek. Czy bagaż rejestrowany jest wliczony?'),
+                  ('Konsultant',
+                   'No, but you can add one suitcase for an extra fee.',
+                   'Nie, ale możesz dodać jedną walizkę za dodatkową opłatą.'),
+                  ('Ty', 'Please add it. What is the total price?', 'Proszę ją dodać. Jaka jest łączna cena?'),
+                  ('Konsultant', "It's one hundred and eighty pounds.", 'Sto osiemdziesiąt funtów.'),
+                  ('Ty', "That works for me. I'd like to book it.", 'Odpowiada mi to. Chciałbym zarezerwować ten lot.')]},
+ 4002: {'title': 'Odprawa przy stanowisku',
+        'task': 'Zmień liczbę bagaży i wybierz miejsce przy przejściu.',
+        'turns': [('Pracownik odprawy', 'Good morning. May I see your passport, please?', 'Dzień dobry. Czy mogę zobaczyć paszport?'),
+                  ('Ty', 'Of course. Here it is.', 'Oczywiście. Proszę.'),
+                  ('Pracownik odprawy', 'How many bags are you checking in?', 'Ile bagaży nadajesz?'),
+                  ('Ty', 'One suitcase. I also have a small backpack.', 'Jedną walizkę. Mam też mały plecak.'),
+                  ('Pracownik odprawy',
+                   'Please put the suitcase on the scales. Would you like a window or an aisle seat?',
+                   'Proszę położyć walizkę na wadze. Wolisz miejsce przy oknie czy przy przejściu?'),
+                  ('Ty', 'A window seat, please.', 'Przy oknie, proszę.'),
+                  ('Pracownik odprawy',
+                   "Here's your boarding pass. Boarding starts at nine fifteen at gate twelve.",
+                   'Oto karta pokładowa. Wejście na pokład zaczyna się o dziewiątej piętnaście przy bramce dwanaście.'),
+                  ('Ty', 'Thank you. Where is security?', 'Dziękuję. Gdzie jest kontrola bezpieczeństwa?'),
+                  ('Pracownik odprawy', 'Go straight ahead and follow the signs.', 'Idź prosto i kieruj się znakami.'),
+                  ('Ty', 'Thank you for your help.', 'Dziękuję za pomoc.')]},
+ 4003: {'title': 'Pomoc na pokładzie',
+        'task': 'Zmień numer miejsca i poproś o inny napój.',
+        'turns': [('Członek załogi',
+                   'Welcome aboard. May I see your boarding pass?',
+                   'Witamy na pokładzie. Czy mogę zobaczyć kartę pokładową?'),
+                  ('Ty', 'Here it is. Where is seat fourteen A?', 'Oto ona. Gdzie jest miejsce czternaście A?'),
+                  ('Członek załogi', "It's a window seat, a few rows further down.", 'To miejsce przy oknie, kilka rzędów dalej.'),
+                  ('Ty', 'Thank you. Can I put my bag here?', 'Dziękuję. Czy mogę położyć tutaj torbę?'),
+                  ('Członek załogi',
+                   'Please put the small bag under the seat in front of you.',
+                   'Proszę umieścić małą torbę pod siedzeniem przed tobą.'),
+                  ('Ty', 'All right. Could I have some water, please?', 'Dobrze. Czy mogę prosić o wodę?'),
+                  ('Członek załogi',
+                   'Of course. Please fasten your seatbelt for take-off.',
+                   'Oczywiście. Proszę zapiąć pasy na czas startu.'),
+                  ('Ty', 'Certainly. Thank you.', 'Oczywiście. Dziękuję.')]},
+ 4004: {'title': 'Zagubiona walizka',
+        'task': 'Opisz walizkę innym kolorem i podaj, gdzie się zatrzymujesz.',
+        'turns': [('Pracownik punktu bagażowego', 'Hello. How can I help you?', 'Dzień dobry. W czym mogę pomóc?'),
+                  ('Ty', "My suitcase hasn't arrived. I've checked the carousel.", 'Moja walizka nie dotarła. Sprawdziłem taśmę bagażową.'),
+                  ('Pracownik punktu bagażowego',
+                   "I'm sorry to hear that. May I see your baggage receipt?",
+                   'Przykro mi to słyszeć. Czy mogę zobaczyć potwierdzenie nadania bagażu?'),
+                  ('Ty', 'Yes, here it is.', 'Tak, proszę.'),
+                  ('Pracownik punktu bagażowego', 'Could you describe your suitcase?', 'Czy możesz opisać walizkę?'),
+                  ('Ty', "It's black, with a red ribbon on the handle.", 'Jest czarna, z czerwoną wstążką na uchwycie.'),
+                  ('Pracownik punktu bagażowego',
+                   'Thank you. Please fill in this form with your contact details and hotel address.',
+                   'Dziękuję. Proszę wpisać w tym formularzu dane kontaktowe i adres hotelu.'),
+                  ('Ty', 'Of course. How can I check for updates?', 'Oczywiście. Jak mogę sprawdzać nowe informacje?'),
+                  ('Pracownik punktu bagażowego',
+                   'Use this reference number on our tracking page.',
+                   'Użyj tego numeru sprawy na naszej stronie do śledzenia bagażu.'),
+                  ('Ty', "Thank you. I'll keep the reference number.", 'Dziękuję. Zachowam numer sprawy.')]},
+ 5001: {'title': 'Zameldowanie w hotelu',
+        'task': 'Zmień nazwisko i długość pobytu, następnie zapytaj o wymeldowanie.',
+        'turns': [('Recepcjonista', 'Good evening. Do you have a reservation?', 'Dobry wieczór. Czy masz rezerwację?'),
+                  ('Ty', 'Yes, under the name Kurda.', 'Tak, na nazwisko Kurda.'),
+                  ('Recepcjonista',
+                   'I have it here. Three nights in a double room, correct?',
+                   'Mam ją tutaj. Trzy noce w pokoju dwuosobowym, zgadza się?'),
+                  ('Ty', "Yes, that's right. Is breakfast included?", 'Tak, zgadza się. Czy śniadanie jest wliczone?'),
+                  ('Recepcjonista',
+                   "Yes. It's served from seven to ten in the dining room.",
+                   'Tak. Podajemy je od siódmej do dziesiątej w jadalni.'),
+                  ('Ty', 'Great. What time is check-out?', 'Świetnie. O której jest wymeldowanie?'),
+                  ('Recepcjonista',
+                   'By eleven. Here is your key. Your room is on the second floor.',
+                   'Do jedenastej. Oto klucz. Pokój jest na drugim piętrze.'),
+                  ('Ty', 'Thank you. Could you tell me the Wi-Fi password?', 'Dziękuję. Czy możesz podać mi hasło do Wi-Fi?'),
+                  ('Recepcjonista', "It's printed on your key card holder.", 'Jest wydrukowane na etui karty do pokoju.'),
+                  ('Ty', 'Thank you for your help.', 'Dziękuję za pomoc.')]},
+ 5002: {'title': 'Wizyta w muzeum',
+        'task': 'Zapytaj o inną atrakcję i zmień liczbę biletów.',
+        'turns': [('Pracownik informacji', 'Hello. What would you like to visit today?', 'Dzień dobry. Co chcesz dzisiaj zwiedzić?'),
+                  ('Ty',
+                   "I'm interested in the city museum. Is it open today?",
+                   'Interesuje mnie muzeum miejskie. Czy jest dzisiaj otwarte?'),
+                  ('Pracownik informacji',
+                   'Yes, until six. The last entry is at five.',
+                   'Tak, do szóstej. Ostatnie wejście jest o piątej.'),
+                  ('Ty', 'Can I buy tickets here?', 'Czy mogę kupić bilety tutaj?'),
+                  ('Pracownik informacji', 'Yes. How many would you like?', 'Tak. Ile biletów chcesz kupić?'),
+                  ('Ty',
+                   'Two adult tickets, please. Is an audio guide included?',
+                   'Dwa bilety dla dorosłych, proszę. Czy audioprzewodnik jest wliczony?'),
+                  ('Pracownik informacji',
+                   "No, it's three pounds extra per person. Would you like one?",
+                   'Nie, kosztuje dodatkowo trzy funty za osobę. Czy chcesz jeden?'),
+                  ('Ty',
+                   'Yes, one please. Could you show me the museum on the map?',
+                   'Tak, jeden, proszę. Czy możesz pokazać mi muzeum na mapie?'),
+                  ('Pracownik informacji',
+                   "Of course. It's here, opposite the library.",
+                   'Oczywiście. Jest tutaj, naprzeciwko biblioteki.'),
+                  ('Ty', "Thank you. That's very helpful.", 'Dziękuję. To bardzo pomocne.')]},
+ 5003: {'title': 'Umawianie spotkania',
+        'task': 'Zaproponuj inną aktywność i ustal czas oraz miejsce.',
+        'turns': [('Znajomy', 'Are you free on Saturday afternoon?', 'Czy masz czas w sobotę po południu?'),
+                  ('Ty', 'I think so. What do you have in mind?', 'Chyba tak. Co masz na myśli?'),
+                  ('Znajomy', 'Would you like to go to the cinema?', 'Czy chcesz pójść do kina?'),
+                  ('Ty', "I'd like to, but I don't want to stay out late.", 'Chętnie, ale nie chcę wracać późno.'),
+                  ('Znajomy', "There's a showing at four. Would that work for you?", 'Jest seans o czwartej. Czy ta godzina ci odpowiada?'),
+                  ('Ty', "Yes, that's perfect. Where shall we meet?", 'Tak, idealnie. Gdzie się spotkamy?'),
+                  ('Znajomy', 'Outside the cinema at quarter to four.', 'Przed kinem za piętnaście czwarta.'),
+                  ('Ty', 'Great. See you there!', 'Świetnie. Do zobaczenia na miejscu!')]},
+ 5004: {'title': 'Wspomnienia z Wenecji',
+        'task': 'Opowiedz o innym miejscu. Dodaj jedną zaletę i jedną wadę wyjazdu.',
+        'turns': [('Znajomy', 'How was your holiday in Venice?', 'Jak minęły twoje wakacje w Wenecji?'),
+                  ('Ty',
+                   'It was lovely. I really enjoyed walking along the canals.',
+                   'Było wspaniale. Bardzo podobały mi się spacery wzdłuż kanałów.'),
+                  ('Znajomy', 'What was the best part?', 'Co było najlepsze?'),
+                  ('Ty', 'The views from the bridges were amazing.', 'Widoki z mostów były niesamowite.'),
+                  ('Znajomy', 'Was it very crowded?', 'Czy było bardzo tłoczno?'),
+                  ('Ty',
+                   'Yes, especially in the main square. I preferred the quieter streets.',
+                   'Tak, zwłaszcza na głównym placu. Wolałem spokojniejsze uliczki.'),
+                  ('Znajomy', 'I think smaller places are more relaxing.', 'Myślę, że mniejsze miejscowości są bardziej relaksujące.'),
+                  ('Ty',
+                   "I see your point, but I'd still like to visit Venice again.",
+                   'Rozumiem twój punkt widzenia, ale i tak chciałbym znów odwiedzić Wenecję.')]},
+ 6001: {'title': 'Opisywanie projektów w CV',
+        'task': 'Opisz własny projekt testowy i narzędzie, którego rzeczywiście używasz.',
+        'turns': [('Rekruter',
+                   'Could you tell me about your testing experience?',
+                   'Czy możesz opowiedzieć o swoim doświadczeniu w testowaniu?'),
+                  ('Ty',
+                   "I don't have commercial experience yet, but I work on my own projects.",
+                   'Nie mam jeszcze doświadczenia komercyjnego, ale pracuję nad własnymi projektami.'),
+                  ('Rekruter', 'What have you tested?', 'Co testowałeś?'),
+                  ('Ty',
+                   "I've tested login forms, shopping baskets and bank transfers in demo applications.",
+                   'Testowałem formularze logowania, koszyki i przelewy bankowe w aplikacjach demonstracyjnych.'),
+                  ('Rekruter', 'Which tools do you use?', 'Jakich narzędzi używasz?'),
+                  ('Ty',
+                   'I use Playwright for automated tests and Postman for API tests.',
+                   'Używam Playwrighta do testów automatycznych i Postmana do testów API.'),
+                  ('Rekruter', 'Could you share an example of your work?', 'Czy możesz pokazać przykład swojej pracy?'),
+                  ('Ty',
+                   'Yes. I can send you a link to my GitHub repository.',
+                   'Tak. Mogę wysłać link do mojego repozytorium na GitHubie.')]},
+ 6002: {'title': 'Pytanie o ofertę Junior QA',
+        'task': 'Zapytaj o pracę zdalną, wymagane doświadczenie i następny krok.',
+        'turns': [('Rekruter',
+                   'Hello. Are you interested in our junior QA position?',
+                   'Dzień dobry. Czy interesuje cię nasze stanowisko Junior QA?'),
+                  ('Ty', "Yes. I'm looking for my first job in testing.", 'Tak. Szukam pierwszej pracy w testowaniu.'),
+                  ('Rekruter', 'Have you worked as a tester before?', 'Czy wcześniej pracowałeś jako tester?'),
+                  ('Ty',
+                   'Not commercially, but I have practical experience from my own projects.',
+                   'Nie komercyjnie, ale mam praktyczne doświadczenie z własnych projektów.'),
+                  ('Rekruter',
+                   "That's useful. What would you like to know about the role?",
+                   'To przydatne. Czego chcesz się dowiedzieć o tym stanowisku?'),
+                  ('Ty',
+                   'Is remote work possible, and is student status required?',
+                   'Czy możliwa jest praca zdalna i czy wymagany jest status studenta?'),
+                  ('Rekruter',
+                   "For this role, remote work is possible and student status isn't required.",
+                   'Na tym stanowisku możliwa jest praca zdalna i status studenta nie jest wymagany.'),
+                  ('Ty', 'Thank you. Where can I send my CV?', 'Dziękuję. Gdzie mogę wysłać CV?'),
+                  ('Rekruter',
+                   'Please apply through the form on our careers page.',
+                   'Proszę aplikować przez formularz na naszej stronie z ofertami pracy.'),
+                  ('Ty', "Great, I'll do that. Thank you for the information.", 'Świetnie, tak zrobię. Dziękuję za informacje.')]},
+ 6003: {'title': 'Rozmowa o sposobie testowania',
+        'task': 'Odpowiedz własnymi słowami, jak sprawdziłbyś formularz logowania.',
+        'turns': [('Rekruter', 'Why would you like to work in QA?', 'Dlaczego chcesz pracować w QA?'),
+                  ('Ty',
+                   'I enjoy finding problems and understanding how applications work.',
+                   'Lubię znajdować problemy i rozumieć, jak działają aplikacje.'),
+                  ('Rekruter', 'How would you test a login form?', 'Jak przetestowałbyś formularz logowania?'),
+                  ('Ty',
+                   "I'd check valid and invalid credentials, empty fields and error messages.",
+                   'Sprawdziłbym poprawne i niepoprawne dane logowania, puste pola i komunikaty błędów.'),
+                  ('Rekruter', 'What would you do if a requirement was unclear?', 'Co zrobiłbyś, gdyby wymaganie było niejasne?'),
+                  ('Ty',
+                   "I'd ask for clarification before deciding what the expected result should be.",
+                   'Poprosiłbym o wyjaśnienie, zanim ustaliłbym, jaki powinien być oczekiwany wynik.'),
+                  ('Rekruter', 'Good. Do you have any questions for us?', 'Dobrze. Czy masz do nas jakieś pytania?'),
+                  ('Ty',
+                   'Yes. How do junior testers get support from the team?',
+                   'Tak. Jakie wsparcie od zespołu otrzymują młodsi testerzy?')]},
+ 6004: {'title': 'Rozmowa o znalezionym błędzie',
+        'task': 'Opisz własny błąd: kroki, wynik rzeczywisty i oczekiwany.',
+        'turns': [('Programista',
+                   'You mentioned a bug in the login form. What happens?',
+                   'Wspomniałeś o błędzie w formularzu logowania. Co się dzieje?'),
+                  ('Ty',
+                   'When I enter a valid email and leave the password empty, the page shows a server error.',
+                   'Kiedy wpisuję poprawny e-mail i zostawiam puste hasło, strona pokazuje błąd serwera.'),
+                  ('Programista', 'What should happen instead?', 'Co powinno się wydarzyć zamiast tego?'),
+                  ('Ty',
+                   'It should show a message asking the user to enter a password.',
+                   'Powinien pojawić się komunikat proszący użytkownika o wpisanie hasła.'),
+                  ('Programista', 'Can you reproduce it every time?', 'Czy możesz odtworzyć ten błąd za każdym razem?'),
+                  ('Ty',
+                   "Yes. I've added the steps and a screenshot to the bug report.",
+                   'Tak. Dodałem kroki i zrzut ekranu do zgłoszenia błędu.'),
+                  ('Programista',
+                   "Thanks. I'll investigate it and let you know when it's ready to retest.",
+                   'Dzięki. Sprawdzę to i dam znać, gdy będzie gotowe do ponownego testu.'),
+                  ('Ty',
+                   "Great. I'll retest the fix and check the other login scenarios too.",
+                   'Świetnie. Przetestuję poprawkę i sprawdzę też pozostałe scenariusze logowania.')]}}
+for lid, dialogue in LESSON_DIALOGUES.items():
+    NEW_LESSONS[lid]['dialogue'] = dialogue['turns']
+
+PROGRESS_FILE = Path(os.environ.get('ENGLISH_TRAINER_PROGRESS', DATA_FILE.with_name('learning_progress.json')))
+PROGRESS_LOCK = threading.RLock()
+STATUS = {'todo':'Do nauki', 'practice':'Ćwiczę', 'done':'Umiem'}
+
+def read_progress():
+    if not PROGRESS_FILE.exists():
+        return {'parts':{}, 'difficult':[], 'last':None}
+    try:
+        data = json.loads(PROGRESS_FILE.read_text(encoding='utf-8'))
+        if not isinstance(data, dict) or not isinstance(data.get('parts'), dict) or not isinstance(data.get('difficult'), list):
+            raise ValueError('Nieprawidłowa struktura')
+        return data
+    except (ValueError, OSError) as exc:
+        raise RuntimeError('Nie można odczytać learning_progress.json. Zachowaj plik i sprawdź jego zawartość.') from exc
+
+def write_progress(data):
+    PROGRESS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temp = PROGRESS_FILE.with_suffix('.tmp')
+    temp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding='utf-8')
+    temp.replace(PROGRESS_FILE)
+
+def phrase_key(p):
+    return hashlib.sha256((norm(p['en'])+'|'+norm(p['pl'])).encode()).hexdigest()[:20]
+
+PHRASE_INDEX = {phrase_key(p):p for part in PARTS.values() for p in part['required_phrases']}
+
+def course_status(lesson, progress):
+    states = [progress['parts'].get(str(pid), 'todo') for pid in lesson['parts']]
+    return 'done' if all(x=='done' for x in states) else ('practice' if any(x!='todo' for x in states) else 'todo')
+
+def scene_svg(lesson, part):
+    """Ilustracja interfejsu: rozmówcy w otoczeniu wybranego działu."""
+    number = lesson['id']//1000
+    props = {
+        1: '<path d="M35 95 L90 50 L145 95 V175 H35Z" fill="#bedbc9"/><path d="M70 175 V119 H107 V175" fill="#80ae96"/>',
+        2: '<rect x="25" y="75" width="135" height="100" rx="12" fill="#a6cbe8"/><rect x="38" y="88" width="109" height="38" rx="6" fill="#fff"/><circle cx="52" cy="178" r="12" fill="#496880"/><circle cx="133" cy="178" r="12" fill="#496880"/>',
+        3: '<rect x="25" y="120" width="140" height="14" rx="6" fill="#c89972"/><path d="M45 134V181M145 134V181" stroke="#98694b" stroke-width="9"/><ellipse cx="90" cy="113" rx="38" ry="10" fill="white"/><path d="M66 107Q90 65 115 107Z" fill="#ffc76a"/>',
+        4: '<rect x="20" y="65" width="145" height="85" rx="16" fill="#acdcf2"/><path d="M40 110L135 80L104 113L124 126L115 132L94 120L78 137L73 130L82 111Z" fill="white"/>',
+        5: '<rect x="28" y="60" width="128" height="120" rx="10" fill="#d4c0e8"/><path d="M78 180V140H106V180" fill="#9880b3"/><path d="M48 85H67M110 85H130M48 112H67M110 112H130" stroke="white" stroke-width="12"/>',
+        6: '<rect x="22" y="110" width="145" height="16" rx="5" fill="#bc9978"/><rect x="50" y="60" width="92" height="52" rx="7" fill="#7199b0"/><path d="M64 80L75 89L64 98M88 98H118" fill="none" stroke="white" stroke-width="5"/>',
+    }[number]
+    label = escape(part['title'])
+    return f'''<svg role="img" aria-label="Ilustracja sytuacyjna: {label}" viewBox="0 0 420 210" style="width:210px;max-width:40%;flex-shrink:0"><rect width="420" height="210" rx="22" fill="#e8f3fc"/><ellipse cx="213" cy="185" rx="190" ry="13" fill="#d0e3f0"/>{props}<circle cx="232" cy="98" r="23" fill="#efbb90"/><path d="M205 170V139Q232 109 259 139V170" fill="#4279c6"/><circle cx="329" cy="98" r="23" fill="#dba57b"/><path d="M302 170V139Q329 109 356 139V170" fill="#e6a05e"/><rect x="204" y="20" width="143" height="39" rx="15" fill="white"/><path d="M227 58V72L243 58" fill="white"/><circle cx="248" cy="39" r="4" fill="#7199b0"/><circle cx="275" cy="39" r="4" fill="#7199b0"/><circle cx="302" cy="39" r="4" fill="#7199b0"/></svg>'''
+
+COURSE_CSS = '''<style>
+.dialogue-line.current-line{outline:3px solid #f2a24c;outline-offset:3px}.dialogue-controls{position:sticky;top:8px;z-index:4;background:#e8edf7;border:1px solid #c5d0e2;border-radius:14px;padding:12px;margin-top:15px}.dialogue-controls p{margin:0 0 8px}.dialogue [hidden]{display:none!important}.dialogue-hint{display:none}.practice-role .you .dialogue-en,.practice-role .you .answer-practice{display:none}.practice-role .you .dialogue-hint{display:inline-flex;margin-top:10px}.practice-role .you.answer-visible .dialogue-en{display:block}.practice-role .you.answer-visible .answer-practice{display:flex}.dialogue-task{padding:16px;border-radius:14px;background:#fce8ec;margin-top:20px}.dialogue-line{overflow-wrap:anywhere}@media(max-width:700px){.dialogue-line{max-width:95%}.dialogue-controls{position:static}}
+
+.course-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.module-card summary{cursor:pointer;list-style:none}.module-card summary h2{margin:10px 0}.module-card summary:after{content:'Rozwiń lekcje ↓';color:#012169;font-weight:600}.module-card[open] summary:after{content:'Zwiń ↑'}.course-row{display:block;padding:16px 0;border-top:1px solid #e3e9f1;color:inherit;text-decoration:none}.course-row strong{display:block;margin:6px 0}.part-nav{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}.part-nav a{padding:9px 12px;border:1px solid #d9e4f3;border-radius:12px;text-decoration:none;color:#26385c}.part-nav a.active{background:#012169;color:white}.scene{display:flex;align-items:center;gap:24px;background:linear-gradient(120deg,#e8edf7,#fce8ec);border-radius:20px;padding:24px;margin:18px 0}.scene-icon{font-size:64px}.scene h2{margin:0}.course-word{margin:10px 0}.course-word form{display:inline-block}.course-word .actions{margin-top:10px}.status-done{color:#13734b}.status-practice{color:#a65c0b}.course-footer{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:24px 0}summary{cursor:pointer}button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #f59e0b;outline-offset:3px}@media(max-width:700px){.course-grid{grid-template-columns:1fr}.scene{padding:18px;gap:12px}.scene-icon{font-size:44px}}
+</style>'''
+
+def course_render(body, title, **context):
+    return render(COURSE_CSS+render_template_string(body, **context), title)
+
+@app.get('/learn')
+def course_home():
+    progress = read_progress()
+    for module in MODULES:
+        for lesson in module['lessons']:
+            lesson['state'] = course_status(lesson, progress)
+        module['done'] = sum(l['state']=='done' for l in module['lessons'])
+    last = progress.get('last')
+    if not isinstance(last, dict) or last.get('part') not in PART_OWNER:
+        last = {'lesson':1001,'part':101}
+    return course_render('''
+<section class="hero"><span class="eyebrow" style="color:#d5e7ff">6 działów · 24 lekcje · krótkie części</span><h1>Angielski do Twojego życia</h1><p>Wybierz sytuację i przećwicz ją krok po kroku.</p><div class="actions"><a class="btn" style="background:white;color:#012169" href="{{ url_for('course_lesson_page', lid=last.lesson, part=last.part) }}">▶ Kontynuuj naukę</a><a class="btn secondary" href="{{ url_for('review_page') }}">★ Powtórka ({{ difficult }})</a></div></section>
+<div class="section-head"><div><span class="eyebrow">Moje działy</span><h2>Wybierz temat</h2><p class="sub">{{ done }}/24 lekcji oznaczonych „Umiem”. Postęp oznaczasz samodzielnie po ćwiczeniu.</p></div></div>
+<div class="course-grid">{% for m in modules %}<details class="card module-card"><summary><span style="font-size:38px" aria-hidden="true">{{ m.icon }}</span><span class="badge">Dział {{ m.number }} · {{ m.done }}/4</span><h2>{{ m.title }}</h2><p class="sub">4 lekcje • rozwiń i wybierz sytuację</p></summary>{% for l in m.lessons %}<a class="course-row" href="{{ url_for('course_lesson_page', lid=l.id) }}"><span class="badge status-{{ l.state }}">{{ states[l.state] }}</span><strong>{{ l.number }}. {{ l.title }}</strong><span class="sub">{{ l.parts|length }} części · {{ l.goal }}</span></a>{% endfor %}</details>{% endfor %}</div>
+''', 'Moja nauka', modules=MODULES, last=last, difficult=len(progress['difficult']), states=STATUS, done=sum(course_status(l,progress)=='done' for l in NEW_LESSONS.values()))
+
+WORD_TEMPLATE = '''<article class="card course-word"><div class="word-en">{{ p.en }} {{ tts(p.en)|safe }}</div><div class="translation">{{ p.pl }}</div><div class="actions"><button class="btn small secondary practice-btn" type="button" data-practice="{{ p.en }}">🎤 Powiedz</button><div class="speech-result" aria-live="polite"></div><form method="post" action="{{ url_for('phrase_action') }}"><input type="hidden" name="key" value="{{ key }}"><input type="hidden" name="return_to" value="{{ back }}"><button class="btn small secondary" name="action" value="difficult">{{ '✓ Usuń z powtórki' if difficult else '★ Trudny zwrot' }}</button></form><form method="post" action="{{ url_for('phrase_action') }}"><input type="hidden" name="key" value="{{ key }}"><input type="hidden" name="return_to" value="{{ back }}"><button class="btn small secondary" name="action" value="dictionary" {{ 'disabled' if known else '' }}>{{ 'W słowniku' if known else '+ Do słownika' }}</button></form></div></article>'''
+
+def word_cards(phrases, progress, back):
+    words = load_words()
+    existing = {(norm(w.en), norm(w.pl)) for w in words.values()}
+    unique = {phrase_key(p):p for p in phrases}
+    return [render_template_string(WORD_TEMPLATE, p=p, key=key, tts=tts, back=back, difficult=key in progress['difficult'], known=(norm(p['en']),norm(p['pl'])) in existing) for key,p in unique.items()]
+
+@app.get('/course/<int:lid>')
+def course_lesson_page(lid):
+    lesson = NEW_LESSONS.get(lid)
+    if not lesson: abort(404)
+    pid = request.args.get('part', lesson['parts'][0], type=int)
+    if pid not in lesson['parts']: abort(404)
+    part = PARTS[pid]
+    with PROGRESS_LOCK:
+        progress = read_progress()
+        progress['last'] = {'lesson':lid, 'part':pid}
+        write_progress(progress)
+    back = url_for('course_lesson_page', lid=lid, part=pid)
+    cards = word_cards(part['required_phrases'], progress, back)
+    idx = lesson['parts'].index(pid)
+    dialogue_data = DIALOGUES.get(pid) or LESSON_DIALOGUES[lid]
+    dialogue = dialogue_data['turns']
+    video = part.get('video')
+    if video and not (Path(app.static_folder)/video['file']).is_file(): video = None
+    return course_render('''
+<a href="{{ url_for('course_home') }}">← Moje działy</a><div class="section-head"><div><span class="eyebrow">{{ lesson.module }} · Lekcja {{ lesson.number }}</span><h1>{{ lesson.title }}</h1><p class="sub">{{ lesson.goal }}</p></div></div>
+<nav class="part-nav" aria-label="Części lekcji">{% for id in lesson.parts %}<a class="{{ 'active' if id==pid else '' }}" href="{{ url_for('course_lesson_page',lid=lesson.id,part=id) }}" {{ 'aria-current=page' if id==pid else '' }}>{{ loop.index }}. {{ parts[id].title }} {{ '✓' if progress.parts.get(id|string)=='done' else '' }}</a>{% endfor %}</nav>
+{% if lesson.id==3003 %}<p class="sub">Pizza, kuchnia azjatycka i kebab to warianty do wyboru. Możesz ćwiczyć je w dowolnej kolejności; „Umiem” dla całej lekcji oznacza przećwiczenie wszystkich części.</p>{% endif %}
+<section class="scene">{{ illustration|safe }}<div><span class="eyebrow">Część {{ index+1 }}/{{ lesson.parts|length }}</span><h2>{{ part.title }}</h2><p>{{ part.goal }}</p></div></section>
+<section class="card"><h3>Twój postęp: {{ states[progress.parts.get(pid|string,'todo')] }}</h3><p class="sub">Dodanie zwrotu do słownika nie oznacza opanowania materiału.</p><form method="post" action="{{ url_for('part_status',pid=pid) }}"><div class="actions">{% for value,label in states.items() %}<button class="btn small {{ 'secondary' if value!=progress.parts.get(pid|string,'todo') else '' }}" name="status" value="{{ value }}">{{ label }}</button>{% endfor %}</div></form></section>
+<h2 style="margin-top:24px">1. Podstawowe zwroty</h2><p class="sub">Odsłuchaj, powtórz i oznacz trudniejsze zdania gwiazdką.</p>{{ basics|safe }}
+<section class="card dialogue" style="margin-top:20px">
+<span class="eyebrow">2. Dialog sytuacyjny · {{ dialogue|length }} kwestii</span><h2>{{ dialogue_data.title }}</h2>
+<p class="sub">{% if dialogue_data.description %}{{ dialogue_data.description }}{% else %}Pełna rozmowa do tej lekcji. Przykładowe dane, ceny i warunki służą nauce.{% endif %}</p>
+<p>Najpierw posłuchaj rozmowy. Następnie wybierz „Ćwicz swoją rolę”: aplikacja przeczyta kwestie rozmówcy i zaczeka na Twoją odpowiedź. Kliknięcie „Dalej” nie ocenia odpowiedzi.</p>
+<div class="actions"><button class="btn" type="button" data-dialogue-play>▶ Odtwórz cały dialog</button><button class="btn secondary" type="button" data-dialogue-role>Ćwicz swoją rolę</button><button class="btn secondary" type="button" data-dialogue-stop>■ Zatrzymaj</button></div>
+<p class="sub">Tempo ustawisz suwakiem głosu u góry strony. Mikrofon porównuje rozpoznany tekst ze zdaniem wzorcowym — nie ocenia swobodnej rozmowy ani poprawności wymowy.</p>
+<div class="dialogue-controls"><p data-dialogue-status role="status" aria-live="polite">Gotowy do rozmowy.</p><button class="btn" type="button" data-dialogue-next hidden>Powiedziałem — dalej →</button></div>
+<div class="dialogue-turns">{% for role,en,pl in dialogue %}<article class="dialogue-line {{ 'you' if role=='Ty' else '' }}" data-dialogue-text="{{ en }}" data-role="{{ role }}"><div class="dialogue-role">{{ loop.index }}. {{ role }}</div><div class="dialogue-en">{{ en }} {{ tts(en)|safe }}</div><div class="dialogue-pl">{{ pl }}</div>{% if role=='Ty' %}<button type="button" class="btn small secondary dialogue-hint" data-dialogue-hint aria-expanded="false">Pokaż podpowiedź</button><div class="practice-actions answer-practice"><button type="button" class="btn small secondary practice-btn" data-practice="{{ en }}">🎤 Powtórz zdanie wzorcowe</button><div class="speech-result" aria-live="polite"></div></div>{% endif %}</article>{% endfor %}</div>
+<div class="dialogue-task"><h3>Teraz zmień rozmowę</h3><p>{{ dialogue_data.task or 'Zmień danie, dodatki i sposób odbioru. Odpowiedz własnymi słowami.' }}</p></div></section>
+<section class="card" style="margin:18px 0"><span class="eyebrow">3. Twoja kolej</span><h2>Powiedz na głos</h2><p>{{ part.goal }}</p><p class="sub">Użyj co najmniej trzech zwrotów z tej części. Następnie wybierz „Ćwiczę” lub „Umiem”. Mikrofon przy zdaniach pozwala ćwiczyć ich wymowę.</p></section>
+{% if extras %}<details class="card"><summary><strong>Więcej zwrotów ({{ extra_count }})</strong> — rozwiń, kiedy opanujesz podstawy</summary>{{ extras|safe }}</details>{% endif %}
+{% if video %}<section class="card" style="margin-top:18px"><h2>{{ video.title }}</h2><video controls style="width:100%" preload="metadata"><source src="{{ url_for('static',filename=video.file) }}" type="video/mp4"></video></section>{% endif %}
+<div class="course-footer">{% if previous %}<a class="btn secondary" href="{{ url_for('course_lesson_page',lid=lesson.id,part=previous) }}">← Poprzednia część</a>{% endif %}{% if next_part %}<a class="btn" href="{{ url_for('course_lesson_page',lid=lesson.id,part=next_part) }}">Następna część →</a>{% elif next_lesson %}<a class="btn" href="{{ url_for('course_lesson_page',lid=next_lesson) }}">Następna lekcja →</a>{% else %}<a class="btn" href="{{ url_for('course_home') }}">Wróć do działów</a>{% endif %}</div>
+''', lesson['title'], lesson=lesson, part=part, pid=pid, parts=PARTS, progress=progress, states=STATUS, basics=''.join(cards[:8]), extras=''.join(cards[8:]), extra_count=max(0,len(cards)-8), dialogue=dialogue, dialogue_data=dialogue_data, tts=tts, video=video, illustration=scene_svg(lesson,part), index=idx, previous=lesson['parts'][idx-1] if idx else None, next_part=lesson['parts'][idx+1] if idx+1<len(lesson['parts']) else None, next_lesson=next(iter(list(NEW_LESSONS)[list(NEW_LESSONS).index(lid)+1:]),None))
+
+@app.post('/progress/<int:pid>')
+def part_status(pid):
+    state = request.form.get('status')
+    if pid not in PART_OWNER or state not in STATUS: abort(400)
+    with PROGRESS_LOCK:
+        progress = read_progress()
+        progress['parts'][str(pid)] = state
+        write_progress(progress)
+    return redirect(url_for('course_lesson_page',lid=PART_OWNER[pid],part=pid))
+
+@app.post('/practice/phrase')
+def phrase_action():
+    key = request.form.get('key')
+    if key not in PHRASE_INDEX: abort(400)
+    action = request.form.get('action')
+    with PROGRESS_LOCK:
+        if action == 'difficult':
+            progress = read_progress()
+            if key in progress['difficult']: progress['difficult'].remove(key)
+            else: progress['difficult'].append(key)
+            write_progress(progress)
+        elif action == 'dictionary':
+            words = load_words()
+            p = PHRASE_INDEX[key]
+            if (norm(p['en']),norm(p['pl'])) not in {(norm(w.en),norm(w.pl)) for w in words.values()}:
+                wid = 'w'+uuid4().hex[:10]
+                words[wid] = Word(wid, p['en'], p['pl'], tags=['kurs'], created_at=now_iso())
+                save_words(words)
+            flash('Zwrot jest w słowniku.')
+        else: abort(400)
+    back = request.form.get('return_to','')
+    if not (re.fullmatch(r'/course/\d+(?:\?part=\d+)?',back) or back=='/review'): back=url_for('course_home')
+    return redirect(back)
+
+@app.get('/review')
+def review_page():
+    progress = read_progress()
+    phrases = [PHRASE_INDEX[k] for k in progress['difficult'] if k in PHRASE_INDEX]
+    cards = word_cards(phrases,progress,url_for('review_page'))
+    return course_render('''<a href="{{ url_for('course_home') }}">← Moje działy</a><h1>★ Powtórka trudnych zwrotów</h1><p class="sub">Odsłuchaj i powtórz zdanie. Gdy je opanujesz, wybierz „Usuń z powtórki”.</p>{% if cards %}{{ cards|join|safe }}{% else %}<section class="card"><h2>Nie masz jeszcze trudnych zwrotów</h2><p>W lekcji kliknij „★ Trudny zwrot”, aby dodać go tutaj.</p><a class="btn" href="{{ url_for('course_home') }}">Wybierz lekcję</a></section>{% endif %}''', 'Powtórka', cards=cards)
+
+# Stare linki do lekcji trafiają do właściwej części nowego kursu.
+def legacy_lesson(lesson_id):
+    if lesson_id not in PART_OWNER: abort(404)
+    return redirect(url_for('course_lesson_page',lid=PART_OWNER[lesson_id],part=lesson_id))
+
+# Formularz dodawania własnych słów pozostaje dostępny pod osobnym adresem.
+app.add_url_rule('/dictionary/add', 'dictionary_add', home)
+app.view_functions['home'] = course_home
+app.view_functions['lessons_list'] = course_home
+app.view_functions['lesson_view'] = legacy_lesson
+
+if __name__ == '__main__':
+    print('English Trainer — 6 działów, 24 lekcje')
+    print('Słownik:', DATA_FILE)
+    print('Postęp:', PROGRESS_FILE)
+    app.run(host='127.0.0.1', port=int(os.environ.get('PORT','5000')), debug=False)
 
 
